@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: school-portal
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT --timeout 120
+    healthCheckPath: /health
+    disk:
+      name: school-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        value: admin2024
+      - key: DATABASE_URL
+        value: sqlite:////data/school.db
+      - key: RENDER
+        value: "true"
+      - key: FLASK_DEBUG
+        value: "0"

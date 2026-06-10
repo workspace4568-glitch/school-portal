@@ -1,0 +1,148 @@
+╔══════════════════════════════════════════════════════════════╗
+║           SCHOOL PORTAL — RENDER DEPLOYMENT GUIDE           ║
+╚══════════════════════════════════════════════════════════════╝
+
+─────────────────────────────────────────
+STEP 1 — PUSH CODE TO GITHUB
+─────────────────────────────────────────
+1. Go to github.com and create a new repository
+2. Unzip this folder on your computer
+3. Open a terminal inside the folder and run:
+
+   git init
+   git add .
+   git commit -m "first commit"
+   git branch -M main
+   git remote add origin https://github.com/YOUR-USERNAME/school-portal.git
+   git push -u origin main
+
+
+─────────────────────────────────────────
+STEP 2 — CREATE ACCOUNT ON RENDER
+─────────────────────────────────────────
+Go to https://render.com and sign up for free.
+Connect your GitHub account when prompted.
+
+
+─────────────────────────────────────────
+STEP 3 — CREATE A WEB SERVICE
+─────────────────────────────────────────
+1. Click  New +  →  Web Service
+2. Connect your GitHub repository
+3. Fill in the form:
+
+   Name          : school-portal (or any name)
+   Runtime       : Python 3
+   Build Command : pip install -r requirements.txt
+   Start Command : gunicorn app:app --workers 1 --threads 4 --bind 0.0.0.0:$PORT --timeout 120
+   Plan          : Free
+
+
+─────────────────────────────────────────
+STEP 4 — ADD ENVIRONMENT VARIABLES
+─────────────────────────────────────────
+Scroll down to "Environment Variables" and add these:
+
+   Key                 Value
+   ─────────────────── ─────────────────────────────────
+   ADMIN_PASSWORD      your-chosen-password
+   SECRET_KEY          any-long-random-text-here
+   DATABASE_URL        sqlite:////data/school.db
+   RENDER              true
+   FLASK_DEBUG         0
+
+
+─────────────────────────────────────────
+STEP 5 — ADD A PERSISTENT DISK
+─────────────────────────────────────────
+(This keeps your data safe across restarts)
+
+Scroll to "Disks" → click Add Disk:
+
+   Name        : school-data
+   Mount Path  : /data
+   Size        : 1 GB
+
+
+─────────────────────────────────────────
+STEP 6 — DEPLOY
+─────────────────────────────────────────
+Click "Create Web Service".
+Render will build and deploy in about 2 minutes.
+
+Your site will be live at:
+   https://school-portal.onrender.com
+
+Admin panel:
+   https://school-portal.onrender.com/admin
+
+Default admin password:
+   admin2024
+   (change this to your own password in Step 4)
+
+
+─────────────────────────────────────────
+AFTER DEPLOYMENT — FIRST STEPS
+─────────────────────────────────────────
+1. Go to /admin and log in
+2. Click Settings → update school name, logo, motto,
+   address, phone and email
+3. Click Appearance → choose your colour scheme
+4. Go to Classes & Subjects → create your classes
+5. Go to Teachers → add your staff
+6. Go to Students → enrol students
+   (Student codes are auto-generated)
+7. Go to Results → enter scores per class per term
+8. Share student codes with parents for result checking
+
+
+─────────────────────────────────────────
+REUSING FOR ANOTHER SCHOOL
+─────────────────────────────────────────
+Use the same GitHub code — just create a new Web Service
+on Render with different environment variables:
+
+   ADMIN_PASSWORD  →  different password per school
+   DATABASE_URL    →  sqlite:////data/schoolname.db
+
+Each school gets its own URL and its own database.
+No data is shared between schools.
+
+
+─────────────────────────────────────────
+KEEPING THE SITE AWAKE (FREE TIER TIP)
+─────────────────────────────────────────
+Render free tier sleeps after 15 minutes of no traffic.
+The first visit after sleep takes ~30 seconds to load.
+
+To keep it always awake for free:
+1. Go to https://uptimerobot.com
+2. Create a free account
+3. Add Monitor → HTTP(S)
+4. Paste your Render site URL
+5. Set interval to 5 minutes
+6. Save — your site stays awake 24/7
+
+
+─────────────────────────────────────────
+URL SUMMARY
+─────────────────────────────────────────
+   /           →  Public home (announcements)
+   /results    →  Student result checker
+   /admin      →  Admin login and panel
+   /health     →  Health check (used by Render)
+
+
+─────────────────────────────────────────
+SUPPORT
+─────────────────────────────────────────
+If deployment fails, check the Render Logs tab
+for the exact error message.
+
+Common fixes:
+  - "Module not found"  → check requirements.txt
+  - "Port not bound"    → check start command
+  - "Data resets"       → make sure disk is added
+  - "Slow first load"   → use UptimeRobot (see above)
+
+══════════════════════════════════════════════════════════════
