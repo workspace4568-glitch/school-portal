@@ -339,7 +339,6 @@ tr:hover td{background:var(--bg)}
 </div>
 
 <script>
-{% raw %}
 // ═══ STATE ════════════════════════════════════════════════════
 const S={settings:{},students:[],teachers:[],classes:[],feeTypes:[],adminLoggedIn:false,admPage:'dashboard',pubPage:'home'};
 const IS_ADMIN=window.location.pathname.startsWith('/admin');
@@ -1154,7 +1153,6 @@ function closeModal(e){if(e&&e.target!==document.getElementById('modal-ov'))retu
 function toast(msg,type='ok'){const tc=document.getElementById('toast');const el=document.createElement('div');const icons={ok:'fa-check-circle',err:'fa-circle-xmark',info:'fa-circle-info'};el.className=`ti ti-${type}`;el.innerHTML=`<i class="fa-solid ${icons[type]||icons.ok}"></i>${msg}`;tc.appendChild(el);setTimeout(()=>{el.style.transition='.24s';el.style.opacity='0';el.style.transform='translateX(110%)';setTimeout(()=>el.remove(),260);},type==='info'?3400:2500);}
 
 init().catch(console.error);
-{% endraw %}
 </script>
 </body>
 </html>
