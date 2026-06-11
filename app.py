@@ -10,7 +10,7 @@ except ImportError:
     pass
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "pca-dev-" + str(uuid.uuid4()))
+app.secret_key = os.environ.get("SECRET_KEY") or "pca-fixed-secret-key-2024"
 
 raw_url = os.environ.get("DATABASE_URL", "sqlite:///school.db")
 if raw_url.startswith("postgres://"):
@@ -19,6 +19,7 @@ if raw_url.startswith("postgres://"):
 app.config["SQLALCHEMY_DATABASE_URI"] = raw_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("RENDER"))
 
 if raw_url.startswith("sqlite"):
