@@ -180,6 +180,9 @@ DEFAULT_SETTINGS = {
     # Appearance
     "sidebar_dark":    "1",
     "border_radius":   "8",
+    "theme_text":      "#0F1520",
+    "theme_sub":       "#4B5563",
+    "theme_muted":     "#9CA3AF",
 }
 
 # ─── HELPERS ───────────────────────────────────────────────────────────────
