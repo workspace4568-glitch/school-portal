@@ -453,6 +453,17 @@ const COLOR_SCHEMES=[
   {id:'plum',         name:'Plum',         p:'#38006B',a:'#76FF03'},
   {id:'rust',         name:'Rust',         p:'#B71C1C',a:'#FFF9C4'},
   {id:'sage',         name:'Sage Green',   p:'#2E7D32',a:'#FFF176'},
+  // School-branded themes
+  {id:'navy-gold',    name:'Navy & Gold',      p:'#0B2046',a:'#FFD700'},
+  {id:'power-blend',  name:'Power Blend',      p:'#0B2046',a:'#D32F2F'},
+  {id:'clean-scholar',name:'Clean Scholar',    p:'#1E3A8A',a:'#EF4444'},
+  {id:'uniform-green',name:'Uniform Green',    p:'#0B2046',a:'#16A34A'},
+  {id:'crimson-focus',name:'Crimson Focus',    p:'#B71C1C',a:'#1E3A8A'},
+  {id:'golden-sun',   name:'Golden Sunshine',  p:'#B45309',a:'#1E3A8A'},
+  {id:'playful-geo',  name:'Playful Geometric',p:'#0B2046',a:'#EF4444'},
+  {id:'deep-ocean',   name:'Deep Ocean & Sky', p:'#38BDF8',a:'#FFD700'},
+  {id:'hi-contrast',  name:'High-Contrast',    p:'#FFD700',a:'#38BDF8'},
+  {id:'crest-color',  name:'Crest Colorway',   p:'#0B2046',a:'#FFD700'},
 ];
 const PRESETS=[
   {id:'classic',    name:'Classic',     desc:'Clean professional',  r:'8', sb:'1',     bg:'#F4F6FA',card:'#FFFFFF'},
@@ -465,6 +476,11 @@ const PRESETS=[
   {id:'fresh',      name:'Fresh',       desc:'Light and airy',      r:'16',sb:'light', bg:'#F0FDF4',card:'#FFFFFF'},
   {id:'bold',       name:'Bold',        desc:'Dark impactful',      r:'8', sb:'1',     bg:'#0F172A',card:'#1E293B'},
   {id:'elegant',    name:'Elegant',     desc:'Refined dark',        r:'6', sb:'1',     bg:'#1C1917',card:'#292524'},
+  // School-branded presets
+  {id:'school-light',  name:'Scholar Light', desc:'Clean white + border', r:'8', sb:'colored',bg:'#FFFFFF',   card:'#F9FAFB'},
+  {id:'school-warm',   name:'Golden Warm',   desc:'Warm pale yellow',     r:'10',sb:'1',      bg:'#FEFCE8',   card:'#FFFFFF'},
+  {id:'school-geo',    name:'Geo Blue',      desc:'Light blue background',r:'10',sb:'1',      bg:'#E0F2FE',   card:'#FFFFFF'},
+  {id:'school-dark',   name:'Deep Ocean',    desc:'Dark navy modern',     r:'8', sb:'1',      bg:'#0F172A',   card:'#1E293B'},
 ];
 
 // ═══ INIT ════════════════════════════════════════════════════
@@ -1234,7 +1250,7 @@ async function genGS(){const id=document.getElementById('rp-gs-cl')?.value;const
 function rAppearance(el){
   const s=S.settings;
   el.innerHTML=`<div class="sec-hd fadeUp"><div class="sec-title"><i class="fa-solid fa-palette"></i> Appearance</div></div>
-  <div class="sdiv">10 PRESET LOOKS</div>
+  <div class="sdiv">14 PRESET LOOKS</div>
   <div class="presets-g fadeUp">
     ${PRESETS.map(p=>`<div class="pc ${s.theme_preset===p.id?'active':''}" id="pc-${p.id}">
       <div class="pc-sw"><div style="flex:2;background:${p.bg}"></div><div style="flex:1;background:${(COLOR_SCHEMES.find(c=>c.id===(s.color_scheme||'royal-blue'))||COLOR_SCHEMES[0]).p}"></div><div style="flex:1;background:${p.card};border-left:1.5px solid #ddd"></div></div>
@@ -1242,7 +1258,7 @@ function rAppearance(el){
       <div class="pc-btns"><button class="pcb pcb-p" onclick="prevPreset('${p.id}')">Preview</button><button class="pcb pcb-a" onclick="applyPreset('${p.id}')">Apply</button></div></div>
     </div>`).join('')}
   </div>
-  <div class="sdiv">20 COLOUR SCHEMES</div>
+  <div class="sdiv">30 COLOUR SCHEMES</div>
   <div class="scheme-g fadeUp">
     ${COLOR_SCHEMES.map(c=>`<div class="sc-card ${s.color_scheme===c.id?'active':''}" id="sc-${c.id}" onclick="applyCS('${c.id}')">
       <div class="sc-dots"><div class="scd" style="background:${c.p}"></div><div class="scd" style="background:${c.a}"></div></div>
