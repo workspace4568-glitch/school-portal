@@ -131,6 +131,15 @@ class FeePayment(db.Model):
     receipt_no     = db.Column(db.String(50))
     note           = db.Column(db.String(200))
 
+class SubjectTemplate(db.Model):
+    """Global subject catalogue — defines subjects school-wide."""
+    id          = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name        = db.Column(db.String(100), nullable=False, unique=True)
+    description = db.Column(db.String(200))
+    default_ca  = db.Column(db.Integer, default=40)
+    default_exam= db.Column(db.Integer, default=60)
+    sort_order  = db.Column(db.Integer, default=0)
+
 class Announcement(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
     title       = db.Column(db.String(200), nullable=False)
@@ -499,6 +508,79 @@ def api_subject_delete(sid):
     Result.query.filter_by(subject_id=sid).delete()
     db.session.delete(s); db.session.commit()
     return jsonify({"success": True})
+
+# ─── SUBJECT TEMPLATES ─────────────────────────────────────────────────────
+
+@app.route("/api/subject-templates", methods=["GET"])
+def api_subject_templates_get():
+    items = SubjectTemplate.query.order_by(SubjectTemplate.sort_order, SubjectTemplate.name).all()
+    return jsonify([{"id": t.id, "name": t.name, "description": t.description or "",
+                     "default_ca": t.default_ca, "default_exam": t.default_exam} for t in items])
+
+@app.route("/api/subject-templates", methods=["POST"])
+def api_subject_template_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    if not d.get("name"): return jsonify({"error": "Name required"}), 400
+    existing = SubjectTemplate.query.filter_by(name=d["name"].strip()).first()
+    if existing: return jsonify({"error": "Subject already exists"}), 409
+    count = SubjectTemplate.query.count()
+    t = SubjectTemplate(name=d["name"].strip(), description=d.get("description", ""),
+                        default_ca=int(d.get("default_ca", 40)),
+                        default_exam=int(d.get("default_exam", 60)),
+                        sort_order=count)
+    db.session.add(t); db.session.commit()
+    return jsonify({"id": t.id, "name": t.name, "description": t.description,
+                    "default_ca": t.default_ca, "default_exam": t.default_exam}), 201
+
+@app.route("/api/subject-templates/<tid>", methods=["PUT"])
+def api_subject_template_update(tid):
+    err = require_admin();
+    if err: return err
+    t = db.session.get(SubjectTemplate, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    if "name" in d: t.name = d["name"].strip()
+    if "description" in d: t.description = d["description"]
+    if "default_ca" in d: t.default_ca = int(d["default_ca"])
+    if "default_exam" in d: t.default_exam = int(d["default_exam"])
+    db.session.commit()
+    return jsonify({"id": t.id, "name": t.name, "description": t.description,
+                    "default_ca": t.default_ca, "default_exam": t.default_exam})
+
+@app.route("/api/subject-templates/<tid>", methods=["DELETE"])
+def api_subject_template_delete(tid):
+    err = require_admin();
+    if err: return err
+    t = db.session.get(SubjectTemplate, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    db.session.delete(t); db.session.commit()
+    return jsonify({"success": True})
+
+@app.route("/api/subject-templates/<tid>/assign", methods=["POST"])
+def api_subject_template_assign(tid):
+    """Assign this subject template to one or more classes."""
+    err = require_admin();
+    if err: return err
+    t = db.session.get(SubjectTemplate, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    class_ids = d.get("class_ids", [])
+    teacher_id = d.get("teacher_id") or None
+    created = []
+    for cid in class_ids:
+        c = db.session.get(Class, cid)
+        if not c: continue
+        # Check if subject with same name already exists in this class
+        exists = Subject.query.filter_by(class_id=cid, name=t.name).first()
+        if not exists:
+            s = Subject(name=t.name, class_id=cid, teacher_id=teacher_id,
+                        max_ca=t.default_ca, max_exam=t.default_exam)
+            db.session.add(s)
+            created.append(cid)
+    db.session.commit()
+    return jsonify({"success": True, "assigned": len(created), "skipped": len(class_ids) - len(created)})
 
 # ─── STUDENTS ──────────────────────────────────────────────────────────────
 
