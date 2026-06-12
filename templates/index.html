@@ -22,6 +22,8 @@ html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-seri
 button{cursor:pointer;font-family:'DM Sans',sans-serif;transition:.15s all;border:none;outline:none}
 input,textarea,select{background:var(--card);border:1.5px solid var(--border2);color:var(--text);border-radius:calc(var(--r) - 2px);padding:9px 12px;font-family:'DM Sans',sans-serif;font-size:14px;outline:none;width:100%;transition:.18s}
 input:focus,textarea:focus,select:focus{border-color:var(--p);box-shadow:0 0 0 3px var(--pl)}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+select option{background:var(--card);color:var(--text)}
 input[type=checkbox],input[type=radio]{width:auto;accent-color:var(--p)}
 input[type=color]{width:44px;height:38px;padding:3px;cursor:pointer;border-radius:6px}
 input[type=date]{cursor:pointer}
@@ -64,23 +66,23 @@ pub-footer-wrap{background:var(--p);margin-top:40px}
 #adm-layout{display:flex;height:100vh;overflow:hidden}
 .sidebar{width:242px;background:var(--sidebar);flex-shrink:0;display:flex;flex-direction:column;overflow-y:auto;transition:background .3s}
 .sidebar::-webkit-scrollbar{width:3px}
-.sb-head{padding:18px;border-bottom:1px solid rgba(255,255,255,.08)}
+.sb-head{padding:18px;border-bottom:1px solid rgba(128,128,128,.2)}
 .sb-logo-row{display:flex;align-items:center;gap:10px}
 .sb-logo{width:34px;height:34px;border-radius:7px;background:var(--a);display:flex;align-items:center;justify-content:center;color:#000;font-weight:700;font-size:13px;overflow:hidden;flex-shrink:0}
 .sb-logo img{width:100%;height:100%;object-fit:contain}
 .sb-school{color:var(--sbt);font-weight:700;font-size:13px;line-height:1.25}
 .sb-sub{color:var(--sbm);font-size:11px;margin-top:2px}
 .sb-nav{flex:1;padding:8px 7px}
-.sb-sec{color:var(--sbm);font-size:10px;font-weight:700;letter-spacing:1.5px;padding:13px 10px 5px;text-transform:uppercase}
-.snl{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;color:rgba(255,255,255,.7);font-size:13px;font-weight:500;cursor:pointer;width:100%;text-align:left;background:none;margin-bottom:2px}
-.snl:hover{background:rgba(255,255,255,.08);color:#fff}
+.sb-sec{color:var(--sbm);font-size:10px;font-weight:700;letter-spacing:1.5px;padding:13px 10px 5px;text-transform:uppercase;opacity:.7}
+.snl{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;color:var(--sbm);font-size:13px;font-weight:500;cursor:pointer;width:100%;text-align:left;background:none;margin-bottom:2px}
+.snl:hover{background:rgba(128,128,128,.15);color:var(--sbt)}
 .snl.on{background:var(--a);color:#000;font-weight:700}
 .snl.on i{color:#000}
-.snl i{width:15px;text-align:center;font-size:13px;color:rgba(255,255,255,.45)}
-.sb-foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08)}
+.snl i{width:15px;text-align:center;font-size:13px;color:var(--sbm)}
+.sb-foot{padding:12px 16px;border-top:1px solid rgba(128,128,128,.2)}
 .adm-main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .adm-topbar{background:var(--card);border-bottom:1px solid var(--border2);height:54px;display:flex;align-items:center;padding:0 22px;gap:12px;flex-shrink:0;box-shadow:var(--sh)}
-.adm-page-title{font-weight:700;font-size:15px;flex:1}
+.adm-page-title{font-weight:700;font-size:15px;flex:1;color:var(--text)}
 .adm-body{flex:1;overflow-y:auto;padding:22px}
 
 /* BUTTONS */
@@ -136,7 +138,7 @@ tr:hover td{background:var(--bg)}
 .modal-ov{position:fixed;inset:0;background:#00000055;backdrop-filter:blur(4px);z-index:500;display:flex;align-items:center;justify-content:center;padding:18px}
 .modal{background:var(--card);border-radius:calc(var(--r)+4px);box-shadow:0 24px 60px #00000030;max-width:580px;width:100%;max-height:90vh;display:flex;flex-direction:column;animation:zoomIn .2s ease}
 .modal-hd{padding:16px 20px;border-bottom:1px solid var(--border2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.modal-ttl{font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px}
+.modal-ttl{font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px;color:var(--text)}
 .modal-ttl i{color:var(--p)}
 .modal-bd{padding:20px;overflow-y:auto;flex:1}
 .modal-ft{padding:13px 20px;border-top:1px solid var(--border2);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
@@ -381,6 +383,7 @@ tr:hover td{background:var(--bg)}
       <div class="sb-sec">Academic</div>
       <button class="snl" id="snl-students"      onclick="admGo('students')"><i class="fa-solid fa-user-graduate"></i> Students</button>
       <button class="snl" id="snl-classes"       onclick="admGo('classes')"><i class="fa-solid fa-chalkboard"></i> Classes &amp; Subjects</button>
+      <button class="snl" id="snl-subjects"      onclick="admGo('subjects')"><i class="fa-solid fa-book-open"></i> Subject Catalogue</button>
       <button class="snl" id="snl-teachers"      onclick="admGo('teachers')"><i class="fa-solid fa-person-chalkboard"></i> Teachers</button>
       <button class="snl" id="snl-attendance"    onclick="admGo('attendance')"><i class="fa-solid fa-clipboard-check"></i> Attendance</button>
       <button class="snl" id="snl-results"       onclick="admGo('results')"><i class="fa-solid fa-star-half-stroke"></i> Results</button>
@@ -394,7 +397,7 @@ tr:hover td{background:var(--bg)}
       <button class="snl" id="snl-settings"      onclick="admGo('settings')"><i class="fa-solid fa-gear"></i> Settings</button>
     </nav>
     <div class="sb-foot">
-      <button class="btn btn-g btn-sm" style="width:100%;justify-content:center" onclick="doLogout()"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
+      <button class="btn btn-sm" style="width:100%;justify-content:center;background:rgba(128,128,128,.15);color:var(--sbt);border:1px solid rgba(128,128,128,.25)" onclick="doLogout()"><i class="fa-solid fa-right-from-bracket"></i> Logout</button>
     </div>
   </div>
   <div class="adm-main">
@@ -421,7 +424,7 @@ tr:hover td{background:var(--bg)}
 
 <script>
 // ═══ STATE ════════════════════════════════════════════════════
-const S={settings:{},students:[],teachers:[],classes:[],feeTypes:[],adminLoggedIn:false,admPage:'dashboard',pubPage:'home'};
+const S={settings:{},students:[],teachers:[],classes:[],feeTypes:[],subjectTemplates:[],adminLoggedIn:false,admPage:'dashboard',pubPage:'home'};
 const IS_ADMIN=window.location.pathname.startsWith('/admin');
 const IS_RESULT=window.location.pathname.startsWith('/result');
 
@@ -484,14 +487,32 @@ function applyTheme(s){
   const rt=document.documentElement,p=s.theme_primary||'#1E3A5F',a=s.theme_accent||'#F59E0B',bg=s.theme_bg||'#F4F6FA',card=s.theme_card||'#FFFFFF',r=s.border_radius||'8',sb=s.sidebar_dark||'1';
   rt.style.setProperty('--p',p);rt.style.setProperty('--pl',p+'18');rt.style.setProperty('--p2',p+'33');
   rt.style.setProperty('--a',a);rt.style.setProperty('--al',a+'20');
-  rt.style.setProperty('--bg',bg);rt.style.setProperty('--bg2',adj(bg,isDark(bg)?1.15:.96));rt.style.setProperty('--bg3',adj(bg,isDark(bg)?1.3:.93));
+  const darkBg=isDark(bg),darkCard=isDark(card);
+  rt.style.setProperty('--bg',bg);rt.style.setProperty('--bg2',adj(bg,darkBg?1.15:.96));rt.style.setProperty('--bg3',adj(bg,darkBg?1.3:.93));
   rt.style.setProperty('--card',card);rt.style.setProperty('--r',r+'px');
-  rt.style.setProperty('--border',isDark(bg)?'#FFFFFF09':'#00000010');rt.style.setProperty('--border2',isDark(bg)?'#FFFFFF16':'#00000018');
-  rt.style.setProperty('--text',isDark(bg)?'#F0F4FF':'#0F1520');rt.style.setProperty('--sub',isDark(bg)?'#94A3B8':'#4B5563');rt.style.setProperty('--muted',isDark(bg)?'#64748B':'#9CA3AF');
-  const sideP=isDark(p)?p:adj(p,.6);
-  if(sb==='colored'){rt.style.setProperty('--sidebar',p);rt.style.setProperty('--sbt','#FFFFFF');rt.style.setProperty('--sbm',adj(p,1.5));}
-  else if(sb==='light'){rt.style.setProperty('--sidebar','#FFFFFF');rt.style.setProperty('--sbt','#0F1520');rt.style.setProperty('--sbm','#9CA3AF');}
-  else{rt.style.setProperty('--sidebar',sideP);rt.style.setProperty('--sbt','#FFFFFF');rt.style.setProperty('--sbm',adj(p,1.7));}
+  rt.style.setProperty('--border',darkBg?'#FFFFFF09':'#00000010');rt.style.setProperty('--border2',darkBg?'#FFFFFF16':'#00000018');
+  // Text colors: derive from background darkness
+  const textColor=darkBg?'#F0F4FF':'#0F1520';
+  const subColor=darkBg?'#94A3B8':'#4B5563';
+  const mutedColor=darkBg?'#64748B':'#9CA3AF';
+  rt.style.setProperty('--text',textColor);rt.style.setProperty('--sub',subColor);rt.style.setProperty('--muted',mutedColor);
+  // Sidebar colors
+  if(sb==='colored'){
+    rt.style.setProperty('--sidebar',p);
+    rt.style.setProperty('--sbt','#FFFFFF');
+    // Make sidebar muted readable on primary color bg
+    rt.style.setProperty('--sbm',isDark(p)?'rgba(255,255,255,0.6)':'rgba(0,0,0,0.55)');
+  } else if(sb==='light'){
+    rt.style.setProperty('--sidebar','#FFFFFF');
+    rt.style.setProperty('--sbt','#0F1520');
+    rt.style.setProperty('--sbm','#6B7280');
+  } else {
+    // Dark mode sidebar: darken primary color
+    const sideP=isDark(p)?p:adj(p,.55);
+    rt.style.setProperty('--sidebar',sideP);
+    rt.style.setProperty('--sbt','#FFFFFF');
+    rt.style.setProperty('--sbm','rgba(255,255,255,0.55)');
+  }
   // Update public nav bg
   const pn=document.getElementById('pub-nav');if(pn)pn.style.background=p;
   const sh=document.getElementById('slip-hd');if(sh)sh.style.background=p;
@@ -531,13 +552,13 @@ function admGo(page){
   S.admPage=page;
   document.querySelectorAll('.snl').forEach(e=>e.classList.remove('on'));
   document.getElementById('snl-'+page)?.classList.add('on');
-  const titles={dashboard:'Dashboard',students:'Students',classes:'Classes & Subjects',teachers:'Teachers',attendance:'Attendance',results:'Results',fees:'Fee Payments',announcements:'Announcements',downloads:'Downloads',reports:'Reports',appearance:'Appearance',settings:'Settings'};
+  const titles={dashboard:'Dashboard',students:'Students',classes:'Classes & Subjects',subjects:'Subject Catalogue',teachers:'Teachers',attendance:'Attendance',results:'Results',fees:'Fee Payments',announcements:'Announcements',downloads:'Downloads',reports:'Reports',appearance:'Appearance',settings:'Settings'};
   document.getElementById('adm-pg-title').textContent=titles[page]||page;
   rAdmPage(page);
 }
 async function doLogin(){const r=await api('POST','/admin/login',{password:document.getElementById('adm-pass').value});if(r.success){S.adminLoggedIn=true;showAdmin();}else{document.getElementById('lp-err').style.display='block';setTimeout(()=>document.getElementById('lp-err').style.display='none',2400);}}
 async function doLogout(){await api('POST','/admin/logout');S.adminLoggedIn=false;showAdmLogin();}
-async function loadAdmData(){const[t,c,f]=await Promise.all([api('GET','/teachers'),api('GET','/classes'),api('GET','/fee-types')]);S.teachers=Array.isArray(t)?t:[];S.classes=Array.isArray(c)?c:[];S.feeTypes=Array.isArray(f)?f:[];}
+async function loadAdmData(){const[t,c,f,st]=await Promise.all([api('GET','/teachers'),api('GET','/classes'),api('GET','/fee-types'),api('GET','/subject-templates')]);S.teachers=Array.isArray(t)?t:[];S.classes=Array.isArray(c)?c:[];S.feeTypes=Array.isArray(f)?f:[];S.subjectTemplates=Array.isArray(st)?st:[];}
 
 // ═══ HELPERS ════════════════════════════════════════════════
 const fmt=n=>`${S.settings.currency||''}${Number(n).toLocaleString()}`;
@@ -673,7 +694,7 @@ async function loadStaff(el){
 // ═══ ADMIN PAGES ═════════════════════════════════════════════
 function rAdmPage(page){
   const el=document.getElementById('adm-body');
-  ({dashboard:rDash,students:rStudents,classes:rClasses,teachers:rTeachers,attendance:rAtt,results:rResults,fees:rFees,announcements:rAnns,downloads:rDls,reports:rReports,appearance:rAppearance,settings:rSettings}[page]||rDash)(el);
+  ({dashboard:rDash,students:rStudents,classes:rClasses,subjects:rSubjectCatalogue,teachers:rTeachers,attendance:rAtt,results:rResults,fees:rFees,announcements:rAnns,downloads:rDls,reports:rReports,appearance:rAppearance,settings:rSettings}[page]||rDash)(el);
 }
 
 // DASHBOARD
@@ -842,6 +863,89 @@ async function saveSubj(classId){
   else toast(r.error||'Failed','err');
 }
 async function delSubj(sid,classId){if(!confirm('Delete subject?'))return;const r=await api('DELETE',`/subjects/${sid}`);if(r.success){const cls=S.classes.find(c=>c.id===classId);if(cls)cls.subjects=cls.subjects.filter(s=>s.id!==sid);rClasses(document.getElementById('adm-body'));toast('Deleted','ok');}}
+
+// SUBJECT CATALOGUE
+async function rSubjectCatalogue(el){
+  const d=await api('GET','/subject-templates');S.subjectTemplates=Array.isArray(d)?d:[];
+  el.innerHTML=`<div class="sec-hd fadeUp">
+    <div><div class="sec-title"><i class="fa-solid fa-book-open"></i> Subject Catalogue</div>
+    <div class="sec-desc">Define subjects school-wide, then assign them to classes</div></div>
+    <button class="btn btn-p" onclick="openSubjTplModal()"><i class="fa-solid fa-plus"></i> New Subject</button>
+  </div>
+  ${S.subjectTemplates.length===0?`<div class="card empty-st"><i class="fa-solid fa-book-open"></i><h3>No subjects defined yet</h3><p>Add subjects to the catalogue, then assign them to classes</p></div>`:`
+  <div class="card tbl-wrap fadeUp"><table>
+    <thead><tr><th>Subject Name</th><th>Description</th><th>Default CA</th><th>Default Exam</th><th>Actions</th></tr></thead>
+    <tbody>${S.subjectTemplates.map(t=>`<tr>
+      <td style="font-weight:700">${t.name}</td>
+      <td style="color:var(--sub)">${t.description||'—'}</td>
+      <td><span class="badge b-blue">${t.default_ca}</span></td>
+      <td><span class="badge b-p">${t.default_exam}</span></td>
+      <td><div class="td-acts">
+        <button class="btn btn-p btn-sm" onclick="openAssignModal('${t.id}','${t.name.replace(/'/g,"\\'")}')"><i class="fa-solid fa-school"></i> Assign to Classes</button>
+        <button class="btn btn-g btn-icon btn-sm" onclick="openSubjTplModal('${t.id}')"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-red btn-icon btn-sm" onclick="delSubjTpl('${t.id}')"><i class="fa-solid fa-trash"></i></button>
+      </div></td>
+    </tr>`).join('')}
+    </tbody></table></div>`}`;
+}
+
+function openSubjTplModal(id){
+  const t=id?S.subjectTemplates.find(x=>x.id===id):null;
+  openModal(t?'Edit Subject':'New Subject','fa-book-open',`
+  <div class="fgrid">
+    <div class="fl fw"><label>Subject Name *</label><input id="stf-nm" value="${t?.name||''}" placeholder="e.g. Mathematics"/></div>
+    <div class="fl fw"><label>Description</label><input id="stf-dc" value="${t?.description||''}" placeholder="Optional short description"/></div>
+    <div class="fl"><label>Default CA Score (max)</label><input type="number" id="stf-ca" value="${t?.default_ca??40}" min="0" max="100"/></div>
+    <div class="fl"><label>Default Exam Score (max)</label><input type="number" id="stf-ex" value="${t?.default_exam??60}" min="0" max="100"/></div>
+  </div>`,
+  [{label:t?'Update':'Create Subject',cls:'btn-p',fn:`saveSubjTpl('${t?.id||''}')`},{label:'Cancel',cls:'btn-g',fn:'closeModal()'}]);
+}
+
+async function saveSubjTpl(id){
+  const d={name:document.getElementById('stf-nm').value.trim(),description:document.getElementById('stf-dc').value.trim(),default_ca:parseInt(document.getElementById('stf-ca').value)||40,default_exam:parseInt(document.getElementById('stf-ex').value)||60};
+  if(!d.name){toast('Name required','err');return;}
+  const r=id?await api('PUT',`/subject-templates/${id}`,d):await api('POST','/subject-templates',d);
+  if(r.id){if(id)S.subjectTemplates=S.subjectTemplates.map(x=>x.id===id?r:x);else S.subjectTemplates.push(r);closeModal();rSubjectCatalogue(document.getElementById('adm-body'));toast(id?'Updated':'Created','ok');}
+  else toast(r.error||'Failed','err');
+}
+
+async function delSubjTpl(id){
+  if(!confirm('Delete this subject from the catalogue?\nThis does NOT remove it from classes where it was already assigned.'))return;
+  const r=await api('DELETE',`/subject-templates/${id}`);
+  if(r.success){S.subjectTemplates=S.subjectTemplates.filter(x=>x.id!==id);rSubjectCatalogue(document.getElementById('adm-body'));toast('Deleted','ok');}
+}
+
+async function openAssignModal(tid,tname){
+  // Refresh class data so we have fresh subject lists
+  const cd=await api('GET','/classes');S.classes=Array.isArray(cd)?cd:[];
+  // Figure out which classes already have this subject
+  const alreadyHave=new Set(S.classes.filter(c=>c.subjects.some(s=>s.name===tname)).map(c=>c.id));
+  const to=S.teachers.map(t=>`<option value="${t.id}">${t.full_name}</option>`).join('');
+  const classRows=S.classes.map(c=>{
+    const has=alreadyHave.has(c.id);
+    return`<label style="display:flex;align-items:center;gap:9px;padding:8px 11px;border:1px solid var(--border2);border-radius:7px;cursor:${has?'default':'pointer'};background:${has?'var(--bg)':'var(--card)'};margin-bottom:5px">
+      <input type="checkbox" id="asgn-${c.id}" ${has?'checked disabled':''} style="accent-color:var(--p)"/>
+      <div style="flex:1"><div style="font-weight:600;font-size:13px">${c.name}</div><div style="color:var(--muted);font-size:11px">${c.level||''} &mdash; ${c.student_count} students</div></div>
+      ${has?`<span class="badge b-green" style="font-size:10px"><i class="fa-solid fa-check"></i> Assigned</span>`:''}
+    </label>`;
+  }).join('');
+  openModal(`Assign "${tname}" to Classes`,'fa-school',`
+  <div style="margin-bottom:14px">
+    <div class="fl"><label>Teacher for this subject (optional)</label><select id="asgn-tc"><option value="">Not assigned</option>${to}</select></div>
+  </div>
+  <div style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px">Select Classes</div>
+  <div style="max-height:280px;overflow-y:auto">${classRows||'<div style="color:var(--muted);padding:12px">No classes found. Create classes first.</div>'}</div>`,
+  [{label:'Assign',cls:'btn-p',fn:`doAssign('${tid}')`},{label:'Cancel',cls:'btn-g',fn:'closeModal()'}]);
+}
+
+async function doAssign(tid){
+  const classIds=S.classes.filter(c=>{const el=document.getElementById(`asgn-${c.id}`);return el&&!el.disabled&&el.checked;}).map(c=>c.id);
+  const teacherId=document.getElementById('asgn-tc')?.value||null;
+  if(!classIds.length){toast('Select at least one class','info');return;}
+  const r=await api('POST',`/subject-templates/${tid}/assign`,{class_ids:classIds,teacher_id:teacherId});
+  if(r.success){closeModal();const[cd]=await Promise.all([api('GET','/classes')]);S.classes=Array.isArray(cd)?cd:[];toast(`Assigned to ${r.assigned} class${r.assigned!==1?'es':''}${r.skipped?` (${r.skipped} already had it)`:''}`, 'ok');}
+  else toast(r.error||'Failed','err');
+}
 
 // TEACHERS
 async function rTeachers(el){
