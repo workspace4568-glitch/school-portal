@@ -1,655 +1,974 @@
-import os
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
-from werkzeug.utils import secure_filename
-from functools import wraps
-from database import (db, init_db, USE_POSTGRES, _p, count, last_insert_id,
-    get_settings, get_pages, get_page_by_slug, get_page_by_id,
-    get_home_page, get_sections, get_nav, get_socials,
-    get_initiatives, get_all_initiatives)
+import os, uuid, json
+from datetime import datetime, date
+from flask import Flask, request, jsonify, session, Response
+from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
+
+try:
+    import psycopg2  # noqa
+except ImportError:
+    pass
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'clinton-tech-dev-suite-2024-secret')
-app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads')
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp', 'gif', 'ico', 'svg'}
+app.secret_key = os.environ.get("SECRET_KEY") or "pca-fixed-secret-key-2024"
 
-def _safe_float(v, default=0.0):
-    try: return float(v or 0)
-    except: return default
+raw_url = os.environ.get("DATABASE_URL", "sqlite:///school.db")
+if raw_url.startswith("postgres://"):
+    raw_url = raw_url.replace("postgres://", "postgresql://", 1)
 
-def _safe_int(v, default=0):
-    try: return int(v or 0)
-    except: return default
+app.config["SQLALCHEMY_DATABASE_URI"] = raw_url
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SECURE"] = bool(os.environ.get("RENDER"))
 
-ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'clinton2024')
+if raw_url.startswith("sqlite"):
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "connect_args": {"check_same_thread": False},
+        "pool_pre_ping": True, "pool_recycle": 300,
+    }
+else:
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True, "pool_recycle": 300}
 
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+CORS(app, supports_credentials=True)
+db = SQLAlchemy(app)
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin2024")
 
-# ─── THEMES ──────────────────────────────────────────────────────────────────
-THEMES = [
-    {"id": "minimal-edge",  "name": "Minimal Edge",    "desc": "Ultra-clean, sharp lines"},
-    {"id": "bold-studio",   "name": "Bold Studio",     "desc": "High-contrast creative agency"},
-    {"id": "classic-pro",   "name": "Classic Pro",     "desc": "Traditional corporate elegance"},
-    {"id": "neon-future",   "name": "Neon Future",     "desc": "Dark with vivid neon accents"},
-    {"id": "organic-warm",  "name": "Organic Warm",    "desc": "Natural textures, soft tones"},
-    {"id": "magazine",      "name": "Magazine",        "desc": "Editorial-style large typography"},
-    {"id": "glass-dark",    "name": "Glass Dark",      "desc": "Glassmorphism on dark bg"},
-    {"id": "retro-grid",    "name": "Retro Grid",      "desc": "80s-inspired grid aesthetic"},
-    {"id": "brutalist",     "name": "Brutalist",       "desc": "Raw, bold, unapologetic"},
-    {"id": "swiss-clean",   "name": "Swiss Clean",     "desc": "Grid-based Swiss design"},
-    {"id": "luxury-gold",   "name": "Luxury Gold",     "desc": "Premium dark gold aesthetic"},
-    {"id": "pastel-soft",   "name": "Pastel Soft",     "desc": "Gentle pastel gradients"},
-    {"id": "tech-dark",     "name": "Tech Dark",       "desc": "Developer-focused dark theme"},
-    {"id": "earthy-sage",   "name": "Earthy Sage",     "desc": "Muted greens and taupes"},
-    {"id": "midnight-blue", "name": "Midnight Blue",   "desc": "Deep navy professional"},
-    {"id": "coral-pop",     "name": "Coral Pop",       "desc": "Energetic warm coral tones"},
-    {"id": "monochrome",    "name": "Monochrome",      "desc": "Black, white, grey only"},
-    {"id": "forest-deep",   "name": "Forest Deep",     "desc": "Rich forest greens"},
-    {"id": "sunset-grad",   "name": "Sunset Gradient", "desc": "Warm gradient flows"},
-    {"id": "arctic-white",  "name": "Arctic White",    "desc": "Crisp white minimal"},
-    {"id": "cinematic",     "name": "Cinematic",       "desc": "Film-noir dramatic contrast"},
-    {"id": "playful-bold",  "name": "Playful Bold",    "desc": "Fun, rounded, colorful"},
-]
+# ─── MODELS ────────────────────────────────────────────────────────────────
 
-COLOR_SCHEMES = [
-    {"id":"crimson-black",   "name":"Crimson Black",   "primary":"#DC143C","secondary":"#1a1a1a","accent":"#FF4444","bg":"#0d0d0d","text":"#f0f0f0"},
-    {"id":"ocean-blue",      "name":"Ocean Blue",      "primary":"#0077B6","secondary":"#023E8A","accent":"#00B4D8","bg":"#f0f8ff","text":"#1a1a2e"},
-    {"id":"forest-green",    "name":"Forest Green",    "primary":"#2D6A4F","secondary":"#1B4332","accent":"#74C69D","bg":"#f8fdf9","text":"#1a2e1f"},
-    {"id":"purple-haze",     "name":"Purple Haze",     "primary":"#7B2FBE","secondary":"#3A0CA3","accent":"#C77DFF","bg":"#0d0d1a","text":"#e8e0ff"},
-    {"id":"midnight-gold",   "name":"Midnight Gold",   "primary":"#C9A84C","secondary":"#8B6914","accent":"#FFD700","bg":"#0a0a0a","text":"#f5f0e0"},
-    {"id":"coral-sunset",    "name":"Coral Sunset",    "primary":"#FF6B6B","secondary":"#C62828","accent":"#FFD166","bg":"#fff9f5","text":"#2d1515"},
-    {"id":"slate-tech",      "name":"Slate Tech",      "primary":"#334155","secondary":"#1E293B","accent":"#38BDF8","bg":"#f8fafc","text":"#0f172a"},
-    {"id":"rose-gold",       "name":"Rose Gold",       "primary":"#B5616A","secondary":"#8B3A42","accent":"#F4A2A2","bg":"#fdf5f5","text":"#2d1010"},
-    {"id":"neon-lime",       "name":"Neon Lime",       "primary":"#ADFF2F","secondary":"#7CFC00","accent":"#00FF7F","bg":"#0a0a0a","text":"#f0f0f0"},
-    {"id":"burnt-orange",    "name":"Burnt Orange",    "primary":"#CC5500","secondary":"#8B3A00","accent":"#FF8C42","bg":"#fdf5ee","text":"#1a0a00"},
-    {"id":"icy-mint",        "name":"Icy Mint",        "primary":"#3CAEA3","secondary":"#20736A","accent":"#A8E6CF","bg":"#f0fffa","text":"#0a2e2a"},
-    {"id":"plum-wine",       "name":"Plum Wine",       "primary":"#6B2D5E","secondary":"#3D1A35","accent":"#D4A0C7","bg":"#0d0008","text":"#f0e8ef"},
-    {"id":"steel-blue",      "name":"Steel Blue",      "primary":"#4682B4","secondary":"#2C5F8A","accent":"#87CEEB","bg":"#f5f8fc","text":"#0d1f35"},
-    {"id":"charcoal-red",    "name":"Charcoal Red",    "primary":"#E53935","secondary":"#B71C1C","accent":"#FF8A80","bg":"#1a1a1a","text":"#f5f5f5"},
-    {"id":"sage-stone",      "name":"Sage Stone",      "primary":"#8FAF8A","secondary":"#5A7A55","accent":"#C8D8C0","bg":"#f5f5f0","text":"#2a352a"},
-    {"id":"ink-blue",        "name":"Ink Blue",        "primary":"#1A237E","secondary":"#0D47A1","accent":"#42A5F5","bg":"#f5f7ff","text":"#0a0d2e"},
-    {"id":"terracotta",      "name":"Terracotta",      "primary":"#C06C4A","secondary":"#8B4513","accent":"#E8A87C","bg":"#fdf5f0","text":"#2e1510"},
-    {"id":"arctic-teal",     "name":"Arctic Teal",     "primary":"#008080","secondary":"#004D4D","accent":"#00CED1","bg":"#f0fffe","text":"#001a1a"},
-    {"id":"warm-cream",      "name":"Warm Cream",      "primary":"#8B7355","secondary":"#5C4A2A","accent":"#D4A853","bg":"#faf8f3","text":"#2a1f0d"},
-    {"id":"electric-violet", "name":"Electric Violet", "primary":"#8B00FF","secondary":"#5A0099","accent":"#DA70D6","bg":"#0a0015","text":"#f0e8ff"},
-    {"id":"deep-maroon",     "name":"Deep Maroon",     "primary":"#800000","secondary":"#4A0000","accent":"#CD5C5C","bg":"#fdf5f5","text":"#1a0000"},
-    {"id":"fresh-lime",      "name":"Fresh Lime",      "primary":"#5D8233","secondary":"#3A5220","accent":"#A3C460","bg":"#f5f9f0","text":"#1a2e0a"},
-    {"id":"platinum",        "name":"Platinum",        "primary":"#808080","secondary":"#404040","accent":"#C0C0C0","bg":"#fafafa","text":"#1a1a1a"},
-    {"id":"cobalt-flame",    "name":"Cobalt Flame",    "primary":"#003399","secondary":"#001866","accent":"#FF6600","bg":"#f0f4ff","text":"#00081a"},
-    {"id":"mojave-sand",     "name":"Mojave Sand",     "primary":"#C2956A","secondary":"#8B6340","accent":"#F0C080","bg":"#fdf8f0","text":"#2e1f0a"},
-    {"id":"dark-slate",      "name":"Dark Slate",      "primary":"#2F4F4F","secondary":"#1A2E2E","accent":"#66CDAA","bg":"#050e0e","text":"#d0f0e8"},
-    {"id":"cherry-blossom",  "name":"Cherry Blossom",  "primary":"#FF69B4","secondary":"#C71585","accent":"#FFB6C1","bg":"#fff5f9","text":"#2e0015"},
-    {"id":"obsidian",        "name":"Obsidian",        "primary":"#2D2D2D","secondary":"#111111","accent":"#888888","bg":"#050505","text":"#e8e8e8"},
-    {"id":"copper-green",    "name":"Copper Green",    "primary":"#4E8B6B","secondary":"#2D5A40","accent":"#B87333","bg":"#f5faf7","text":"#0d2018"},
-    {"id":"crimson-gold",    "name":"Crimson Gold",    "primary":"#8B0000","secondary":"#5A0000","accent":"#FFD700","bg":"#0d0000","text":"#fff8e0"},
-]
+class Setting(db.Model):
+    id    = db.Column(db.Integer, primary_key=True)
+    key   = db.Column(db.String(100), unique=True, nullable=False)
+    value = db.Column(db.Text)
 
-THEME_CSS = {
-    "minimal-edge":  "--font-heading:'DM Sans',sans-serif;--font-body:'DM Sans',sans-serif;--radius:2px;--shadow:0 1px 3px rgba(0,0,0,0.1);--section-padding:100px 0;",
-    "bold-studio":   "--font-heading:'Syne',sans-serif;--font-body:'Inter',sans-serif;--radius:0px;--shadow:4px 4px 0px var(--primary);--section-padding:120px 0;",
-    "classic-pro":   "--font-heading:'Playfair Display',serif;--font-body:'Source Sans 3',sans-serif;--radius:4px;--shadow:0 4px 20px rgba(0,0,0,0.08);--section-padding:100px 0;",
-    "neon-future":   "--font-heading:'Orbitron',sans-serif;--font-body:'Rajdhani',sans-serif;--radius:0px;--shadow:0 0 20px var(--accent);--section-padding:120px 0;",
-    "organic-warm":  "--font-heading:'Fraunces',serif;--font-body:'Nunito',sans-serif;--radius:16px;--shadow:0 8px 30px rgba(0,0,0,0.06);--section-padding:110px 0;",
-    "magazine":      "--font-heading:'Bebas Neue',sans-serif;--font-body:'Lora',serif;--radius:0px;--shadow:none;--section-padding:80px 0;",
-    "glass-dark":    "--font-heading:'Space Grotesk',sans-serif;--font-body:'Space Grotesk',sans-serif;--radius:12px;--shadow:0 8px 32px rgba(0,0,0,0.4);--section-padding:120px 0;",
-    "retro-grid":    "--font-heading:'Press Start 2P',monospace;--font-body:'VT323',monospace;--radius:0px;--shadow:4px 4px 0px #000;--section-padding:100px 0;",
-    "brutalist":     "--font-heading:'Anton',sans-serif;--font-body:'IBM Plex Mono',monospace;--radius:0px;--shadow:6px 6px 0px #000;--section-padding:80px 0;",
-    "swiss-clean":   "--font-heading:'Helvetica Neue',sans-serif;--font-body:'Helvetica Neue',sans-serif;--radius:0px;--shadow:none;--section-padding:120px 0;",
-    "luxury-gold":   "--font-heading:'Cormorant Garamond',serif;--font-body:'Cormorant',serif;--radius:2px;--shadow:0 8px 40px rgba(0,0,0,0.6);--section-padding:140px 0;",
-    "pastel-soft":   "--font-heading:'Quicksand',sans-serif;--font-body:'Quicksand',sans-serif;--radius:20px;--shadow:0 4px 20px rgba(0,0,0,0.05);--section-padding:100px 0;",
-    "tech-dark":     "--font-heading:'JetBrains Mono',monospace;--font-body:'JetBrains Mono',monospace;--radius:4px;--shadow:0 0 15px rgba(0,255,128,0.2);--section-padding:100px 0;",
-    "earthy-sage":   "--font-heading:'Josefin Sans',sans-serif;--font-body:'Raleway',sans-serif;--radius:8px;--shadow:0 4px 15px rgba(0,0,0,0.08);--section-padding:110px 0;",
-    "midnight-blue": "--font-heading:'Montserrat',sans-serif;--font-body:'Open Sans',sans-serif;--radius:6px;--shadow:0 6px 25px rgba(0,0,50,0.2);--section-padding:100px 0;",
-    "coral-pop":     "--font-heading:'Paytone One',sans-serif;--font-body:'Poppins',sans-serif;--radius:12px;--shadow:0 6px 20px rgba(255,107,107,0.3);--section-padding:100px 0;",
-    "monochrome":    "--font-heading:'Archivo Black',sans-serif;--font-body:'Archivo',sans-serif;--radius:0px;--shadow:2px 2px 0px #000;--section-padding:100px 0;",
-    "forest-deep":   "--font-heading:'Spectral',serif;--font-body:'Karla',sans-serif;--radius:8px;--shadow:0 8px 30px rgba(0,60,0,0.15);--section-padding:110px 0;",
-    "sunset-grad":   "--font-heading:'Righteous',sans-serif;--font-body:'Mulish',sans-serif;--radius:10px;--shadow:0 8px 25px rgba(200,80,0,0.2);--section-padding:120px 0;",
-    "arctic-white":  "--font-heading:'Barlow',sans-serif;--font-body:'Barlow',sans-serif;--radius:4px;--shadow:0 2px 10px rgba(0,0,0,0.06);--section-padding:100px 0;",
-    "cinematic":     "--font-heading:'Big Shoulders Display',sans-serif;--font-body:'Crimson Text',serif;--radius:2px;--shadow:0 10px 40px rgba(0,0,0,0.8);--section-padding:140px 0;",
-    "playful-bold":  "--font-heading:'Fredoka One',sans-serif;--font-body:'Nunito',sans-serif;--radius:24px;--shadow:0 6px 20px rgba(0,0,0,0.12);--section-padding:100px 0;",
+class Teacher(db.Model):
+    id            = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    staff_id      = db.Column(db.String(20), unique=True)
+    first_name    = db.Column(db.String(100), nullable=False)
+    last_name     = db.Column(db.String(100), nullable=False)
+    email         = db.Column(db.String(200))
+    phone         = db.Column(db.String(30))
+    qualification = db.Column(db.String(200))
+    bio           = db.Column(db.Text)
+    photo         = db.Column(db.Text)          # base64
+    visible       = db.Column(db.Boolean, default=True)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Class(db.Model):
+    id              = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name            = db.Column(db.String(50), nullable=False)   # e.g. JSS1A
+    level           = db.Column(db.String(50))                   # e.g. Junior Secondary
+    form_teacher_id = db.Column(db.String(36), db.ForeignKey("teacher.id"), nullable=True)
+    form_teacher    = db.relationship("Teacher", backref="form_classes")
+    students        = db.relationship("Student", backref="class_", lazy=True)
+    subjects        = db.relationship("Subject", backref="class_", lazy=True, cascade="all,delete-orphan")
+
+class Subject(db.Model):
+    id         = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name       = db.Column(db.String(100), nullable=False)
+    class_id   = db.Column(db.String(36), db.ForeignKey("class.id"), nullable=False)
+    teacher_id = db.Column(db.String(36), db.ForeignKey("teacher.id"), nullable=True)
+    teacher    = db.relationship("Teacher", backref="subjects")
+    max_ca     = db.Column(db.Integer, default=40)
+    max_exam   = db.Column(db.Integer, default=60)
+
+class Student(db.Model):
+    id           = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    student_code = db.Column(db.String(30), unique=True, nullable=False)
+    first_name   = db.Column(db.String(100), nullable=False)
+    last_name    = db.Column(db.String(100), nullable=False)
+    other_name   = db.Column(db.String(100))
+    class_id     = db.Column(db.String(36), db.ForeignKey("class.id"), nullable=True)
+    gender       = db.Column(db.String(10))
+    dob          = db.Column(db.String(20))
+    parent_name  = db.Column(db.String(200))
+    parent_phone = db.Column(db.String(30))
+    parent_email = db.Column(db.String(200))
+    address      = db.Column(db.Text)
+    photo        = db.Column(db.Text)
+    status       = db.Column(db.String(20), default="active")  # active/inactive/graduated
+    enrolled_year= db.Column(db.Integer, default=lambda: datetime.utcnow().year)
+    created_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    results      = db.relationship("Result", backref="student", lazy=True, cascade="all,delete-orphan")
+    attendances  = db.relationship("Attendance", backref="student", lazy=True, cascade="all,delete-orphan")
+    payments     = db.relationship("FeePayment", backref="student", lazy=True, cascade="all,delete-orphan")
+
+class Attendance(db.Model):
+    id         = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.String(36), db.ForeignKey("student.id"), nullable=False)
+    date       = db.Column(db.String(20), nullable=False)
+    status     = db.Column(db.String(20), default="present")   # present/absent/late
+
+class Result(db.Model):
+    id            = db.Column(db.Integer, primary_key=True)
+    student_id    = db.Column(db.String(36), db.ForeignKey("student.id"), nullable=False)
+    subject_id    = db.Column(db.String(36), db.ForeignKey("subject.id"), nullable=False)
+    term          = db.Column(db.Integer, nullable=False)        # 1, 2, 3
+    academic_year = db.Column(db.String(20), nullable=False)     # e.g. 2024/2025
+    ca_score      = db.Column(db.Float, default=0)
+    exam_score    = db.Column(db.Float, default=0)
+    total         = db.Column(db.Float, default=0)
+    grade         = db.Column(db.String(5))
+    remark        = db.Column(db.String(50))
+    subject       = db.relationship("Subject", backref="results")
+
+class FeeType(db.Model):
+    id            = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name          = db.Column(db.String(100), nullable=False)
+    amount        = db.Column(db.Float, nullable=False)
+    term          = db.Column(db.Integer)
+    academic_year = db.Column(db.String(20))
+    description   = db.Column(db.String(200))
+    payments      = db.relationship("FeePayment", backref="fee_type", lazy=True)
+
+class FeePayment(db.Model):
+    id             = db.Column(db.Integer, primary_key=True)
+    student_id     = db.Column(db.String(36), db.ForeignKey("student.id"), nullable=False)
+    fee_type_id    = db.Column(db.String(36), db.ForeignKey("fee_type.id"), nullable=False)
+    amount_paid    = db.Column(db.Float, nullable=False)
+    date_paid      = db.Column(db.String(20), default=lambda: date.today().isoformat())
+    payment_method = db.Column(db.String(50), default="cash")
+    receipt_no     = db.Column(db.String(50))
+    note           = db.Column(db.String(200))
+
+class SubjectTemplate(db.Model):
+    """Global subject catalogue — defines subjects school-wide."""
+    id          = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name        = db.Column(db.String(100), nullable=False, unique=True)
+    description = db.Column(db.String(200))
+    default_ca  = db.Column(db.Integer, default=40)
+    default_exam= db.Column(db.Integer, default=60)
+    sort_order  = db.Column(db.Integer, default=0)
+
+class Announcement(db.Model):
+    id          = db.Column(db.Integer, primary_key=True)
+    title       = db.Column(db.String(200), nullable=False)
+    content     = db.Column(db.Text, nullable=False)
+    category    = db.Column(db.String(50), default="General")
+    date_posted = db.Column(db.DateTime, default=datetime.utcnow)
+    published   = db.Column(db.Boolean, default=True)
+    pinned      = db.Column(db.Boolean, default=False)
+
+class Download(db.Model):
+    id            = db.Column(db.Integer, primary_key=True)
+    title         = db.Column(db.String(200), nullable=False)
+    category      = db.Column(db.String(50), default="General")
+    file_name     = db.Column(db.String(200))
+    file_data     = db.Column(db.Text)    # base64
+    file_type     = db.Column(db.String(50))
+    date_uploaded = db.Column(db.DateTime, default=datetime.utcnow)
+    published     = db.Column(db.Boolean, default=True)
+
+# ─── DEFAULT SETTINGS ──────────────────────────────────────────────────────
+
+def _auto_academic_year():
+    """Auto-generate academic year e.g. 2026/2027 based on today's date.
+    Assumes new academic year starts in September (adjust month if needed)."""
+    now = datetime.utcnow()
+    start = now.year if now.month >= 9 else now.year - 1
+    return f"{start}/{start + 1}"
+
+
+DEFAULT_SETTINGS = {
+    "school_name":     "Proper Child Academy",
+    "school_short":    "PCA",
+    "school_motto":    "Excellence in Learning",
+    "address":         "123 School Road, Lagos",
+    "phone":           "+234 800 000 0000",
+    "email":           "info@properchildacademy.edu.ng",
+    "website":         "",
+    "logo":            "",
+    "current_term":    "1",
+    "current_year":    _auto_academic_year(),
+    "theme_primary":   "#1E3A5F",
+    "theme_accent":    "#F59E0B",
+    "theme_bg":        "#F4F6FA",
+    "theme_card":      "#FFFFFF",
+    "theme_preset":    "classic",
+    "color_scheme":    "royal-blue",
+    # Appearance
+    "sidebar_dark":    "1",
+    "border_radius":   "8",
+    "theme_text":      "#0F1520",
+    "theme_sub":       "#4B5563",
+    "theme_muted":     "#9CA3AF",
 }
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+# ─── HELPERS ───────────────────────────────────────────────────────────────
 
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get('admin_logged_in'):
-            return redirect(url_for('admin_login'))
-        return f(*args, **kwargs)
-    return decorated
+def get_setting(key):
+    s = Setting.query.filter_by(key=key).first()
+    return s.value if s else DEFAULT_SETTINGS.get(key, "")
 
-def render_ctx(s, nav, socials):
-    scheme = next((c for c in COLOR_SCHEMES if c['id'] == s['color_scheme']), COLOR_SCHEMES[0])
-    theme_css = THEME_CSS.get(s['theme'], THEME_CSS['bold-studio'])
-    return dict(s=s, nav=nav, socials=socials, scheme=scheme, theme_css=theme_css)
+def set_setting(key, value):
+    s = Setting.query.filter_by(key=key).first()
+    if s: s.value = value
+    else: db.session.add(Setting(key=key, value=str(value) if value is not None else ""))
 
-def execute(conn, sql, params=()):
-    """Execute with the right placeholder style."""
-    if USE_POSTGRES:
-        sql = sql.replace('?', '%s')
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    return cur
+def require_admin():
+    if not session.get("admin"):
+        return jsonify({"error": "Unauthorized"}), 401
+    return None
 
-# ─── SITE ROUTES ─────────────────────────────────────────────────────────────
-@app.route('/')
-def index():
-    with db() as conn:
-        s = get_settings(conn)
-        if s['maintenance_mode']:
-            return render_template('site/maintenance.html', s=s)
-        home = get_home_page(conn)
-        sections   = get_sections(conn, home['id'], enabled_only=True) if home else []
-        initiatives = get_initiatives(conn)
-        nav    = get_nav(conn)
-        socials = get_socials(conn)
-    ctx = render_ctx(s, nav, socials)
-    return render_template('site/index.html', sections=sections, initiatives=initiatives, **ctx)
+def calculate_grade(total):
+    if total >= 75: return ("A1", "Excellent")
+    elif total >= 70: return ("B2", "Very Good")
+    elif total >= 65: return ("B3", "Good")
+    elif total >= 60: return ("C4", "Credit")
+    elif total >= 55: return ("C5", "Credit")
+    elif total >= 50: return ("C6", "Credit")
+    elif total >= 45: return ("D7", "Pass")
+    elif total >= 40: return ("E8", "Pass")
+    else: return ("F9", "Fail")
 
-@app.route('/page/<slug>')
-def site_page(slug):
-    with db() as conn:
-        s = get_settings(conn)
-        if s['maintenance_mode']:
-            return render_template('site/maintenance.html', s=s)
-        page = get_page_by_slug(conn, slug)
-        if not page or not page['visible']:
-            return render_template('site/404.html', s=s, nav=get_nav(conn),
-                                   socials=get_socials(conn),
-                                   scheme=next((c for c in COLOR_SCHEMES if c['id']==s['color_scheme']),COLOR_SCHEMES[0]),
-                                   theme_css=THEME_CSS.get(s['theme'],THEME_CSS['bold-studio'])), 404
-        sections = get_sections(conn, page['id'], enabled_only=True)
-        nav    = get_nav(conn)
-        socials = get_socials(conn)
-    ctx = render_ctx(s, nav, socials)
-    return render_template('site/page.html', page=page, sections=sections, **ctx)
+def generate_student_code():
+    short = get_setting("school_short") or "PCA"
+    year  = str(datetime.utcnow().year)
+    prefix = f"{short}{year}"
+    count = Student.query.filter(Student.student_code.like(f"{prefix}%")).count()
+    return f"{prefix}{str(count + 1).zfill(4)}"
 
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+def generate_staff_id():
+    count = Teacher.query.count()
+    return f"STF{str(count + 1).zfill(4)}"
 
-# ─── ADMIN AUTH ───────────────────────────────────────────────────────────────
-@app.route('/admin', methods=['GET', 'POST'])
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    if session.get('admin_logged_in'):
-        return redirect(url_for('admin_dashboard'))
-    error = None
-    if request.method == 'POST':
-        if (request.form.get('username') == ADMIN_USERNAME and
-                request.form.get('password') == ADMIN_PASSWORD):
-            session['admin_logged_in'] = True
-            return redirect(url_for('admin_dashboard'))
-        error = 'Invalid credentials. Please try again.'
-    return render_template('admin/login.html', error=error)
+def generate_receipt_no():
+    count = FeePayment.query.count()
+    return f"RCP{datetime.utcnow().year}{str(count + 1).zfill(5)}"
 
-@app.route('/admin/logout')
-def admin_logout():
-    session.clear()
-    return redirect(url_for('admin_login'))
+def student_dict(s, include_class=True):
+    d = {
+        "id": s.id, "student_code": s.student_code,
+        "first_name": s.first_name, "last_name": s.last_name,
+        "other_name": s.other_name or "",
+        "full_name": f"{s.first_name} {s.last_name}",
+        "gender": s.gender or "", "dob": s.dob or "",
+        "parent_name": s.parent_name or "", "parent_phone": s.parent_phone or "",
+        "parent_email": s.parent_email or "", "address": s.address or "",
+        "photo": s.photo or "", "status": s.status,
+        "enrolled_year": s.enrolled_year, "class_id": s.class_id or "",
+    }
+    if include_class and s.class_id:
+        cls = db.session.get(Class, s.class_id)
+        d["class_name"] = cls.name if cls else ""
+    else:
+        d["class_name"] = ""
+    return d
 
-# ─── ADMIN DASHBOARD ─────────────────────────────────────────────────────────
-@app.route('/admin/dashboard')
-@admin_required
-def admin_dashboard():
-    with db() as conn:
-        s = get_settings(conn)
-        pages = get_pages(conn)
-    return render_template('admin/dashboard.html', s=s, pages=pages,
-                           themes=THEMES, schemes=COLOR_SCHEMES)
+def teacher_dict(t):
+    return {
+        "id": t.id, "staff_id": t.staff_id or "",
+        "first_name": t.first_name, "last_name": t.last_name,
+        "full_name": f"{t.first_name} {t.last_name}",
+        "email": t.email or "", "phone": t.phone or "",
+        "qualification": t.qualification or "", "bio": t.bio or "",
+        "photo": t.photo or "", "visible": t.visible,
+    }
 
-# ─── ADMIN SETTINGS ───────────────────────────────────────────────────────────
-@app.route('/admin/settings', methods=['GET', 'POST'])
-@admin_required
-def admin_settings():
-    with db() as conn:
-        s = get_settings(conn)
-        if request.method == 'POST':
-            f = request.form
-            anim  = 1 if 'animations_enabled'      in f else 0
-            ann   = 1 if 'announcement_bar_enabled' in f else 0
-            maint = 1 if 'maintenance_mode'         in f else 0
-            logo_url = s['logo_url']
-            fav_url  = s['favicon_url']
-            for field in ['logo', 'favicon']:
-                file = request.files.get(field)
-                if file and file.filename and allowed_file(file.filename):
-                    fname = secure_filename(f"{field}_{file.filename}")
-                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
-                    if field == 'logo': logo_url = fname
-                    else:               fav_url  = fname
-            execute(conn, """
-                UPDATE site_settings SET
-                    site_name=?, tagline=?, theme=?, color_scheme=?,
-                    logo_url=?, favicon_url=?, footer_text=?,
-                    contact_email=?, contact_phone=?, contact_address=?, contact_hours=?,
-                    meta_title=?, meta_description=?,
-                    animations_enabled=?, announcement_bar_enabled=?,
-                    announcement_text=?, announcement_link=?,
-                    maintenance_mode=?, maintenance_message=?,
-                    button_style=?, button_radius=?,
-                    container_max_width=?, container_justify=?,
-                    nav_style=?,
-                    font_heading=?, font_body=?, font_mono=?
-                WHERE id=1
-            """, (
-                f.get('site_name',''), f.get('tagline',''),
-                f.get('theme','bold-studio'), f.get('color_scheme','crimson-black'),
-                logo_url, fav_url, f.get('footer_text',''),
-                f.get('contact_email',''), f.get('contact_phone',''),
-                f.get('contact_address',''), f.get('contact_hours',''),
-                f.get('meta_title',''), f.get('meta_description',''),
-                anim, ann, f.get('announcement_text',''), f.get('announcement_link',''),
-                maint, f.get('maintenance_message',''),
-                f.get('button_style','solid'), int(f.get('button_radius', 6)),
-                int(f.get('container_max_width', 1200)), f.get('container_justify','center'),
-                f.get('nav_style','slide-right'),
-                f.get('font_heading',''), f.get('font_body',''), f.get('font_mono','')
-            ))
-            flash('Settings saved!', 'success')
-            return redirect(url_for('admin_settings'))
-        return render_template('admin/settings.html', s=s, themes=THEMES, schemes=COLOR_SCHEMES)
+def class_dict(c):
+    return {
+        "id": c.id, "name": c.name, "level": c.level or "",
+        "form_teacher_id": c.form_teacher_id or "",
+        "form_teacher": f"{c.form_teacher.first_name} {c.form_teacher.last_name}" if c.form_teacher else "",
+        "student_count": len(c.students),
+        "subject_count": len(c.subjects),
+        "subjects": [{"id": s.id, "name": s.name, "max_ca": s.max_ca, "max_exam": s.max_exam,
+                       "teacher_id": s.teacher_id or "",
+                       "teacher": f"{s.teacher.first_name} {s.teacher.last_name}" if s.teacher else ""}
+                     for s in c.subjects],
+    }
 
-# ─── ADMIN PAGES ─────────────────────────────────────────────────────────────
-@app.route('/admin/pages')
-@admin_required
-def admin_pages():
-    with db() as conn:
-        pages = get_pages(conn)
-    return render_template('admin/pages.html', pages=pages)
+def result_dict(r):
+    return {
+        "id": r.id, "student_id": r.student_id,
+        "subject_id": r.subject_id,
+        "subject_name": r.subject.name if r.subject else "",
+        "term": r.term, "academic_year": r.academic_year,
+        "ca_score": r.ca_score, "exam_score": r.exam_score,
+        "total": r.total, "grade": r.grade or "", "remark": r.remark or "",
+        "max_ca": r.subject.max_ca if r.subject else 40,
+        "max_exam": r.subject.max_exam if r.subject else 60,
+    }
 
-@app.route('/admin/pages/new', methods=['GET', 'POST'])
-@admin_required
-def admin_new_page():
-    if request.method == 'POST':
-        title = request.form.get('title','').strip()
-        slug  = request.form.get('slug','').strip()
-        with db() as conn:
-            n = count(conn, 'pages')
-            execute(conn, "INSERT INTO pages (title,slug,is_home,visible,ord) VALUES (?,?,0,1,?)", (title, slug, n))
-            page_id = last_insert_id(conn, 'pages')
-            execute(conn, "INSERT INTO sections (page_id,type,ord,enabled,heading,subheading,content) VALUES (?,?,0,1,?,?,'<p>Edit this content in the admin panel.</p>')",
-                    (page_id, 'hero', title, 'Subtitle goes here'))
-            execute(conn, "INSERT INTO sections (page_id,type,ord,enabled,heading,content) VALUES (?,?,1,1,'Content','<p>Add your content here.</p>')",
-                    (page_id, 'content'))
-        flash('Page created!', 'success')
-        return redirect(url_for('admin_edit_page', page_id=page_id))
-    return render_template('admin/new_page.html')
+def get_class_positions(class_id, term, academic_year):
+    students = Student.query.filter_by(class_id=class_id, status="active").all()
+    data = []
+    for s in students:
+        results = Result.query.filter_by(student_id=s.id, term=term, academic_year=academic_year).all()
+        if results:
+            total_score = sum(r.total or 0 for r in results)
+            subj_count = len(results)
+            avg = round(total_score / subj_count, 1) if subj_count else 0
+            data.append({"student_id": s.id, "total": total_score, "avg": avg, "count": subj_count})
+    data.sort(key=lambda x: x["total"], reverse=True)
+    return {d["student_id"]: {"position": i + 1, "out_of": len(data), "total": d["total"], "avg": d["avg"]} for i, d in enumerate(data)}
 
-@app.route('/admin/pages/<int:page_id>', methods=['GET', 'POST'])
-@admin_required
-def admin_edit_page(page_id):
-    with db() as conn:
-        page = get_page_by_id(conn, page_id)
-        if not page:
-            flash('Page not found.', 'error')
-            return redirect(url_for('admin_pages'))
-        if request.method == 'POST' and request.form.get('action') == 'update_page':
-            visible   = 1 if 'visible' in request.form else 0
-            new_slug  = page['slug'] if page['is_home'] else request.form.get('slug', page['slug'])
-            execute(conn, "UPDATE pages SET title=?,slug=?,visible=? WHERE id=?",
-                    (request.form.get('title', page['title']), new_slug, visible, page_id))
-            flash('Page updated!', 'success')
-            page = get_page_by_id(conn, page_id)
-        sections = get_sections(conn, page_id)
-    return render_template('admin/edit_page.html', page=page, sections=sections)
+# ─── DB INIT ───────────────────────────────────────────────────────────────
 
-@app.route('/admin/pages/<int:page_id>/delete', methods=['POST'])
-@admin_required
-def admin_delete_page(page_id):
-    with db() as conn:
-        page = get_page_by_id(conn, page_id)
-        if page and page['is_home']:
-            flash("Cannot delete the home page.", 'error')
-            return redirect(url_for('admin_pages'))
-        execute(conn, "DELETE FROM sections WHERE page_id=?", (page_id,))
-        execute(conn, "DELETE FROM pages WHERE id=?", (page_id,))
-    flash('Page deleted.', 'success')
-    return redirect(url_for('admin_pages'))
+def initialize_db():
+    try:
+        db.create_all()
+    except Exception as e:
+        print(f"[init] create_all: {e}")
+    try:
+        for key, value in DEFAULT_SETTINGS.items():
+            if not Setting.query.filter_by(key=key).first():
+                db.session.add(Setting(key=key, value=value))
+        db.session.commit()
+        print("[init] Database ready")
+    except Exception as e:
+        db.session.rollback()
+        print(f"[init] seed error: {e}")
 
-# ─── ADMIN SECTIONS ───────────────────────────────────────────────────────────
-@app.route('/admin/sections/<int:section_id>', methods=['POST'])
-@admin_required
-def admin_update_section(section_id):
-    with db() as conn:
-        cur = execute(conn, "SELECT * FROM sections WHERE id=?", (section_id,))
-        sec = cur.fetchone()
-        if not sec:
-            flash('Section not found.', 'error')
-            return redirect(url_for('admin_pages'))
-        sec = dict(sec)
-        f = request.form
-        enabled   = 1 if 'enabled' in f else 0
-        btn_new_tab = 1 if 'button_new_tab' in f else 0
-        image_url = sec['image_url']
-        file = request.files.get('image')
-        if file and file.filename and allowed_file(file.filename):
-            fname = secure_filename(f"sec_{section_id}_{file.filename}")
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
-            image_url = fname
-        execute(conn, """
-            UPDATE sections SET heading=?,subheading=?,content=?,
-            button_text=?,button_link=?,button_new_tab=?,enabled=?,image_url=?,image_alt=?,
-            image_position=?,image_size=?,image_overlay=?,image_overlay_color=?,image_blur=?,
-            icon_style=?,icon_border=?,icon_hover=?
-            WHERE id=?
-        """, (f.get('heading',''), f.get('subheading',''), f.get('content',''),
-              f.get('button_text',''), f.get('button_link',''), btn_new_tab, enabled,
-              image_url, f.get('image_alt',''),
-              f.get('image_position','center'), f.get('image_size','cover'),
-              _safe_float(f.get('image_overlay', 0)), f.get('image_overlay_color','#000000'),
-              _safe_int(f.get('image_blur', 0)),
-              f.get('icon_style','default'), f.get('icon_border','none'), f.get('icon_hover','zoom'),
-              section_id))
-        page_id = sec['page_id']
-    flash('Section saved!', 'success')
-    return redirect(url_for('admin_edit_page', page_id=page_id))
-
-@app.route('/admin/sections/add/<int:page_id>', methods=['POST'])
-@admin_required
-def admin_add_section(page_id):
-    sec_type = request.form.get('type', 'content')
-    with db() as conn:
-        n = count(conn, 'sections')
-        execute(conn, "INSERT INTO sections (page_id,type,ord,enabled,heading,subheading,content) VALUES (?,?,?,1,'New Section','','<p>Edit this content.</p>')",
-                (page_id, sec_type, n))
-    flash('Section added!', 'success')
-    return redirect(url_for('admin_edit_page', page_id=page_id))
-
-@app.route('/admin/sections/<int:section_id>/delete', methods=['POST'])
-@admin_required
-def admin_delete_section(section_id):
-    with db() as conn:
-        cur = execute(conn, "SELECT page_id FROM sections WHERE id=?", (section_id,))
-        row = cur.fetchone()
-        page_id = dict(row)['page_id'] if row else None
-        execute(conn, "DELETE FROM sections WHERE id=?", (section_id,))
-    flash('Section deleted.', 'success')
-    return redirect(url_for('admin_edit_page', page_id=page_id))
-
-# ─── ADMIN NAV ────────────────────────────────────────────────────────────────
-@app.route('/admin/nav', methods=['GET', 'POST'])
-@admin_required
-def admin_nav():
-    with db() as conn:
-        if request.method == 'POST':
-            action = request.form.get('action')
-            if action == 'add':
-                n = count(conn, 'nav_items')
-                execute(conn, "INSERT INTO nav_items (label,url,icon,ord) VALUES (?,?,?,?)",
-                        (request.form.get('label'), request.form.get('url'),
-                         request.form.get('icon',''), n))
-                flash('Nav link added!', 'success')
-            elif action == 'delete':
-                execute(conn, "DELETE FROM nav_items WHERE id=?", (request.form.get('id'),))
-                flash('Nav link removed.', 'success')
-        nav = get_nav(conn)
-    return render_template('admin/nav.html', nav=nav)
-
-# ─── ADMIN SOCIALS ────────────────────────────────────────────────────────────
-@app.route('/admin/socials', methods=['GET', 'POST'])
-@admin_required
-def admin_socials():
-    with db() as conn:
-        if request.method == 'POST':
-            action = request.form.get('action')
-            if action == 'add':
-                execute(conn, "INSERT INTO social_links (platform,url,icon) VALUES (?,?,?)",
-                        (request.form.get('platform'), request.form.get('url'),
-                         request.form.get('icon','fa-solid fa-link')))
-                flash('Social link added!', 'success')
-            elif action == 'delete':
-                execute(conn, "DELETE FROM social_links WHERE id=?", (request.form.get('id'),))
-                flash('Social link removed.', 'success')
-        socials = get_socials(conn)
-    return render_template('admin/socials.html', socials=socials)
-
-# ─── ADMIN INITIATIVES ────────────────────────────────────────────────────────
-@app.route('/admin/initiatives', methods=['GET', 'POST'])
-@admin_required
-def admin_initiatives():
-    with db() as conn:
-        if request.method == 'POST':
-            action = request.form.get('action')
-            if action == 'add':
-                n = count(conn, 'initiatives')
-                execute(conn, "INSERT INTO initiatives (title,description,button_text,button_link,icon,ord) VALUES (?,?,?,?,?,?)",
-                        (request.form.get('title','New Initiative'),
-                         request.form.get('description',''),
-                         request.form.get('button_text','Learn More'),
-                         request.form.get('button_link','#'),
-                         request.form.get('icon','fa-solid fa-star'), n))
-                flash('Initiative added!', 'success')
-            elif action == 'delete':
-                execute(conn, "DELETE FROM initiatives WHERE id=?", (request.form.get('id'),))
-                flash('Initiative deleted.', 'success')
-        initiatives = get_all_initiatives(conn)
-    return render_template('admin/initiatives.html', initiatives=initiatives)
-
-@app.route('/admin/initiatives/<int:init_id>', methods=['POST'])
-@admin_required
-def admin_update_initiative(init_id):
-    f = request.form
-    btn_new_tab = 1 if 'button_new_tab' in f else 0
-    with db() as conn:
-        execute(conn, "UPDATE initiatives SET title=?,description=?,button_text=?,button_link=?,button_new_tab=?,icon=? WHERE id=?",
-                (f.get('title'), f.get('description'), f.get('button_text'),
-                 f.get('button_link'), btn_new_tab, f.get('icon'), init_id))
-    flash('Initiative updated!', 'success')
-    return redirect(url_for('admin_initiatives'))
-
-# ─── SEED ─────────────────────────────────────────────────────────────────────
-def seed():
-    with db() as conn:
-        if count(conn, 'site_settings') == 0:
-            execute(conn, "INSERT INTO site_settings (id) VALUES (1)")
-        if count(conn, 'pages') == 0:
-            execute(conn, "INSERT INTO pages (title,slug,is_home,visible,ord) VALUES ('Home','home',1,1,0)")
-            cur = execute(conn, "SELECT id FROM pages WHERE is_home=1")
-            home_id = dict(cur.fetchone())['id']
-            for i,(typ,h,sub,cont,bt,bl,img) in enumerate([
-                ('hero','Clinton Tech Dev Suite','Building Digital Experiences That Matter',
-                 'Professional web development solutions tailored for your business.','View My Work','#portfolio','default-hero.svg'),
-                ('services','What I Build','Full-stack solutions from concept to launch','','','','default-services.svg'),
-                ('about','About Me','Developer & Digital Craftsman',
-                 '<p>I specialise in creating high-performance websites and web applications that help businesses grow online.</p>','Download CV','#','default-about.svg'),
-                ('portfolio','Portfolio','Recent Work','','','','default-portfolio.svg'),
-                ('contact','Get In Touch',"Let's build something great together",'','','','default-contact.svg'),
-            ]):
-                execute(conn, "INSERT INTO sections (page_id,type,ord,enabled,heading,subheading,content,button_text,button_link,image_url) VALUES (?,?,?,1,?,?,?,?,?,?)",
-                        (home_id,typ,i,h,sub,cont,bt,bl,img))
-            for i,(lbl,url,icon) in enumerate([
-                ('Home','/','fa-solid fa-house'),
-                ('Portfolio','/#portfolio','fa-solid fa-briefcase'),
-                ('Services','/#services','fa-solid fa-code'),
-                ('Contact','/#contact','fa-solid fa-envelope'),
-            ]):
-                execute(conn, "INSERT INTO nav_items (label,url,icon,ord) VALUES (?,?,?,?)",(lbl,url,icon,i))
-            for plat,url,icon in [
-                ('GitHub','https://github.com','fa-brands fa-github'),
-                ('LinkedIn','https://linkedin.com','fa-brands fa-linkedin'),
-                ('Twitter/X','https://twitter.com','fa-brands fa-x-twitter'),
-            ]:
-                execute(conn, "INSERT INTO social_links (platform,url,icon) VALUES (?,?,?)",(plat,url,icon))
-            for i,(title,desc,icon) in enumerate([
-                ('Static Websites','Lightning-fast static sites with perfect Lighthouse scores, deployed globally.','fa-solid fa-bolt'),
-                ('Web Applications','Full-stack apps with robust backends, databases, auth, and APIs.','fa-solid fa-layer-group'),
-                ('E-Commerce','Online stores optimised for conversions and seamless user experience.','fa-solid fa-cart-shopping'),
-            ]):
-                execute(conn, "INSERT INTO initiatives (title,description,button_text,button_link,icon,ord) VALUES (?,?,'Learn More','#contact',?,?)",
-                        (title,desc,icon,i))
-
-# ─── STARTUP ─────────────────────────────────────────────────────────────────
 with app.app_context():
-    init_db()
-    seed()
+    initialize_db()
 
-if __name__ == '__main__':
-    app.run(debug=True)
+# ─── FRONTEND ──────────────────────────────────────────────────────────────
 
-# ─── GALLERY (import extra db helpers) ───────────────────────────────────────
-from database import init_gallery, get_gallery_items, get_gallery_categories, get_all_gallery_items
+def _serve_html():
+    """Serve index.html directly — bypasses Jinja2 completely.
+    No template syntax errors possible since file is read raw."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
+    with open(path, "r", encoding="utf-8") as f:
+        html = f.read()
+    return Response(html, status=200, mimetype="text/html")
 
-GALLERY_ALLOWED = {'png','jpg','jpeg','webp','gif','mp4','mov','webm','ogg'}
+@app.route("/")
+def index(): return _serve_html()
 
-def gallery_allowed(filename):
-    return '.' in filename and filename.rsplit('.',1)[1].lower() in GALLERY_ALLOWED
+@app.route("/admin")
+def admin(): return _serve_html()
 
-def is_video(filename):
-    return filename.rsplit('.',1)[-1].lower() in {'mp4','mov','webm','ogg'}
+@app.route("/results")
+def results(): return _serve_html()
 
-# Site-facing gallery page
-@app.route('/gallery')
-def gallery_page():
-    cat = request.args.get('cat', 'All')
-    with db() as conn:
-        s = get_settings(conn)
-        if s['maintenance_mode']:
-            return render_template('site/maintenance.html', s=s)
-        init_gallery(conn)
-        items = get_gallery_items(conn, category=cat if cat != 'All' else None)
-        categories = ['All'] + get_gallery_categories(conn)
-        nav = get_nav(conn)
-        socials = get_socials(conn)
-    ctx = render_ctx(s, nav, socials)
-    return render_template('site/gallery.html', items=items, categories=categories,
-                           active_cat=cat, is_video=is_video, **ctx)
+@app.route("/health")
+def health(): return jsonify({"status": "ok"}), 200
 
-# Admin gallery
-@app.route('/admin/gallery')
-@admin_required
-def admin_gallery():
-    with db() as conn:
-        init_gallery(conn)
-        items = get_all_gallery_items(conn)
-    return render_template('admin/gallery.html', items=items, is_video=is_video)
+# ─── SETTINGS ──────────────────────────────────────────────────────────────
 
-@app.route('/admin/gallery/upload', methods=['POST'])
-@admin_required
-def admin_gallery_upload():
-    files = request.files.getlist('media')
-    title    = request.form.get('title','')
-    caption  = request.form.get('caption','')
-    category = request.form.get('category','General').strip() or 'General'
-    with db() as conn:
-        init_gallery(conn)
-        n = count(conn, 'gallery_items')
-        for file in files:
-            if file and file.filename and gallery_allowed(file.filename):
-                ext  = file.filename.rsplit('.',1)[1].lower()
-                fname = secure_filename(f"gallery_{n}_{file.filename}")
-                file.save(os.path.join(app.config['UPLOAD_FOLDER'], fname))
-                mtype = 'video' if is_video(fname) else 'image'
-                execute(conn, "INSERT INTO gallery_items (title,caption,media_type,filename,category,ord) VALUES (?,?,?,?,?,?)",
-                        (title or file.filename, caption, mtype, fname, category, n))
-                n += 1
-    flash('Media uploaded!', 'success')
-    return redirect(url_for('admin_gallery'))
+@app.route("/api/settings", methods=["GET"])
+def api_settings_get():
+    return jsonify({k: get_setting(k) for k in DEFAULT_SETTINGS})
 
-@app.route('/admin/gallery/<int:item_id>/delete', methods=['POST'])
-@admin_required
-def admin_gallery_delete(item_id):
-    with db() as conn:
-        init_gallery(conn)
-        cur = execute(conn, "SELECT filename FROM gallery_items WHERE id=?", (item_id,))
-        row = cur.fetchone()
-        if row:
-            fname = dict(row)['filename']
-            fpath = os.path.join(app.config['UPLOAD_FOLDER'], fname)
-            if os.path.exists(fpath):
-                os.remove(fpath)
-        execute(conn, "DELETE FROM gallery_items WHERE id=?", (item_id,))
-    flash('Item deleted.', 'success')
-    return redirect(url_for('admin_gallery'))
+@app.route("/api/settings", methods=["POST"])
+def api_settings_post():
+    err = require_admin(); 
+    if err: return err
+    for key, val in (request.json or {}).items():
+        set_setting(key, val)
+    db.session.commit()
+    return jsonify({"success": True})
 
-@app.route('/admin/gallery/<int:item_id>/toggle', methods=['POST'])
-@admin_required
-def admin_gallery_toggle(item_id):
-    with db() as conn:
-        init_gallery(conn)
-        cur = execute(conn, "SELECT enabled FROM gallery_items WHERE id=?", (item_id,))
-        row = cur.fetchone()
-        if row:
-            current = dict(row)['enabled']
-            execute(conn, "UPDATE gallery_items SET enabled=? WHERE id=?", (0 if current else 1, item_id))
-    return redirect(url_for('admin_gallery'))
+# ─── ADMIN AUTH ────────────────────────────────────────────────────────────
 
-@app.route('/admin/gallery/<int:item_id>/edit', methods=['POST'])
-@admin_required
-def admin_gallery_edit(item_id):
-    f = request.form
-    with db() as conn:
-        init_gallery(conn)
-        execute(conn, "UPDATE gallery_items SET title=?,caption=?,category=? WHERE id=?",
-                (f.get('title',''), f.get('caption',''), f.get('category','General'), item_id))
-    flash('Item updated.', 'success')
-    return redirect(url_for('admin_gallery'))
+@app.route("/api/admin/login", methods=["POST"])
+def api_admin_login():
+    if (request.json or {}).get("password") == ADMIN_PASSWORD:
+        session["admin"] = True
+        return jsonify({"success": True})
+    return jsonify({"error": "Invalid password"}), 401
 
-# ─── STATIC EXPORT ────────────────────────────────────────────────────────────
-import tempfile, threading
-from exporter import export_static, zip_export
-from flask import send_file
+@app.route("/api/admin/logout", methods=["POST"])
+def api_admin_logout():
+    session.pop("admin", None)
+    return jsonify({"success": True})
 
-_export_lock = threading.Lock()
-_export_status = {'running': False, 'done': False, 'summary': None, 'error': None}
+@app.route("/api/admin/check")
+def api_admin_check():
+    return jsonify({"admin": bool(session.get("admin"))})
 
-@app.route('/admin/export')
-@admin_required
-def admin_export():
-    with db() as conn:
-        s = get_settings(conn)
-        pages = get_pages(conn)
-    return render_template('admin/export.html', s=s, pages=pages,
-                           status=_export_status)
+# ─── TEACHERS ──────────────────────────────────────────────────────────────
 
-@app.route('/admin/export/run', methods=['POST'])
-@admin_required
-def admin_export_run():
-    global _export_status
-    if _export_status['running']:
-        flash('Export already in progress.', 'error')
-        return redirect(url_for('admin_export'))
+@app.route("/api/teachers", methods=["GET"])
+def api_teachers_get():
+    teachers = Teacher.query.order_by(Teacher.last_name).all()
+    return jsonify([teacher_dict(t) for t in teachers])
 
-    _export_status = {'running': True, 'done': False, 'summary': None, 'error': None}
+@app.route("/api/teachers/public", methods=["GET"])
+def api_teachers_public():
+    teachers = Teacher.query.filter_by(visible=True).order_by(Teacher.last_name).all()
+    return jsonify([teacher_dict(t) for t in teachers])
 
-    def do_export():
-        global _export_status
-        try:
-            out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'export_out')
-            summary = export_static(app, out_dir)
-            _export_status['summary'] = summary
-            _export_status['done']    = True
-        except Exception as e:
-            _export_status['error'] = str(e)
-        finally:
-            _export_status['running'] = False
+@app.route("/api/teachers", methods=["POST"])
+def api_teacher_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    t = Teacher(
+        staff_id=d.get("staff_id") or generate_staff_id(),
+        first_name=d["first_name"], last_name=d["last_name"],
+        email=d.get("email",""), phone=d.get("phone",""),
+        qualification=d.get("qualification",""), bio=d.get("bio",""),
+        photo=d.get("photo",""), visible=d.get("visible", True)
+    )
+    db.session.add(t); db.session.commit()
+    return jsonify(teacher_dict(t)), 201
 
-    t = threading.Thread(target=do_export, daemon=True)
-    t.start()
-    t.join(timeout=120)   # wait up to 2 min synchronously
+@app.route("/api/teachers/<tid>", methods=["PUT"])
+def api_teacher_update(tid):
+    err = require_admin();
+    if err: return err
+    t = db.session.get(Teacher, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    for f in ["first_name","last_name","email","phone","qualification","bio","visible","staff_id"]:
+        if f in d: setattr(t, f, d[f])
+    if "photo" in d: t.photo = d["photo"]
+    db.session.commit()
+    return jsonify(teacher_dict(t))
 
-    return redirect(url_for('admin_export'))
+@app.route("/api/teachers/<tid>", methods=["DELETE"])
+def api_teacher_delete(tid):
+    err = require_admin();
+    if err: return err
+    t = db.session.get(Teacher, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    db.session.delete(t); db.session.commit()
+    return jsonify({"success": True})
 
-@app.route('/admin/export/download')
-@admin_required
-def admin_export_download():
-    out_dir  = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'export_out')
-    zip_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'site_export.zip')
+# ─── CLASSES ───────────────────────────────────────────────────────────────
 
-    if not os.path.isdir(out_dir):
-        flash('No export found. Run export first.', 'error')
-        return redirect(url_for('admin_export'))
+@app.route("/api/classes", methods=["GET"])
+def api_classes_get():
+    classes = Class.query.order_by(Class.name).all()
+    return jsonify([class_dict(c) for c in classes])
 
-    with db() as conn:
-        s = get_settings(conn)
-    site_name = s['site_name'].lower().replace(' ', '-')
-    from datetime import datetime
-    fname = f"{site_name}-static-{datetime.now().strftime('%Y%m%d')}.zip"
+@app.route("/api/classes", methods=["POST"])
+def api_class_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    c = Class(name=d["name"], level=d.get("level",""),
+              form_teacher_id=d.get("form_teacher_id") or None)
+    db.session.add(c); db.session.commit()
+    return jsonify(class_dict(c)), 201
 
-    zip_export(out_dir, zip_path)
-    return send_file(zip_path, as_attachment=True, download_name=fname,
-                     mimetype='application/zip')
+@app.route("/api/classes/<cid>", methods=["PUT"])
+def api_class_update(cid):
+    err = require_admin();
+    if err: return err
+    c = db.session.get(Class, cid)
+    if not c: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    if "name" in d: c.name = d["name"]
+    if "level" in d: c.level = d["level"]
+    if "form_teacher_id" in d: c.form_teacher_id = d["form_teacher_id"] or None
+    db.session.commit()
+    return jsonify(class_dict(c))
+
+@app.route("/api/classes/<cid>", methods=["DELETE"])
+def api_class_delete(cid):
+    err = require_admin();
+    if err: return err
+    c = db.session.get(Class, cid)
+    if not c: return jsonify({"error": "Not found"}), 404
+    db.session.delete(c); db.session.commit()
+    return jsonify({"success": True})
+
+# ─── SUBJECTS ──────────────────────────────────────────────────────────────
+
+@app.route("/api/subjects", methods=["POST"])
+def api_subject_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    s = Subject(name=d["name"], class_id=d["class_id"],
+                teacher_id=d.get("teacher_id") or None,
+                max_ca=int(d.get("max_ca", 40)), max_exam=int(d.get("max_exam", 60)))
+    db.session.add(s); db.session.commit()
+    return jsonify({"id": s.id, "name": s.name, "class_id": s.class_id,
+                    "max_ca": s.max_ca, "max_exam": s.max_exam,
+                    "teacher_id": s.teacher_id or "",
+                    "teacher": f"{s.teacher.first_name} {s.teacher.last_name}" if s.teacher else ""}), 201
+
+@app.route("/api/subjects/<sid>", methods=["PUT"])
+def api_subject_update(sid):
+    err = require_admin();
+    if err: return err
+    s = db.session.get(Subject, sid)
+    if not s: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    if "name" in d: s.name = d["name"]
+    if "teacher_id" in d: s.teacher_id = d["teacher_id"] or None
+    if "max_ca" in d: s.max_ca = int(d["max_ca"])
+    if "max_exam" in d: s.max_exam = int(d["max_exam"])
+    db.session.commit()
+    return jsonify({"id": s.id, "name": s.name, "teacher_id": s.teacher_id or "",
+                    "max_ca": s.max_ca, "max_exam": s.max_exam,
+                    "teacher": f"{s.teacher.first_name} {s.teacher.last_name}" if s.teacher else ""})
+
+@app.route("/api/subjects/<sid>", methods=["DELETE"])
+def api_subject_delete(sid):
+    err = require_admin();
+    if err: return err
+    s = db.session.get(Subject, sid)
+    if not s: return jsonify({"error": "Not found"}), 404
+    Result.query.filter_by(subject_id=sid).delete()
+    db.session.delete(s); db.session.commit()
+    return jsonify({"success": True})
+
+# ─── SUBJECT TEMPLATES ─────────────────────────────────────────────────────
+
+@app.route("/api/subject-templates", methods=["GET"])
+def api_subject_templates_get():
+    items = SubjectTemplate.query.order_by(SubjectTemplate.sort_order, SubjectTemplate.name).all()
+    return jsonify([{"id": t.id, "name": t.name, "description": t.description or "",
+                     "default_ca": t.default_ca, "default_exam": t.default_exam} for t in items])
+
+@app.route("/api/subject-templates", methods=["POST"])
+def api_subject_template_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    if not d.get("name"): return jsonify({"error": "Name required"}), 400
+    existing = SubjectTemplate.query.filter_by(name=d["name"].strip()).first()
+    if existing: return jsonify({"error": "Subject already exists"}), 409
+    count = SubjectTemplate.query.count()
+    t = SubjectTemplate(name=d["name"].strip(), description=d.get("description", ""),
+                        default_ca=int(d.get("default_ca", 40)),
+                        default_exam=int(d.get("default_exam", 60)),
+                        sort_order=count)
+    db.session.add(t); db.session.commit()
+    return jsonify({"id": t.id, "name": t.name, "description": t.description,
+                    "default_ca": t.default_ca, "default_exam": t.default_exam}), 201
+
+@app.route("/api/subject-templates/<tid>", methods=["PUT"])
+def api_subject_template_update(tid):
+    err = require_admin();
+    if err: return err
+    t = db.session.get(SubjectTemplate, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    if "name" in d: t.name = d["name"].strip()
+    if "description" in d: t.description = d["description"]
+    if "default_ca" in d: t.default_ca = int(d["default_ca"])
+    if "default_exam" in d: t.default_exam = int(d["default_exam"])
+    db.session.commit()
+    return jsonify({"id": t.id, "name": t.name, "description": t.description,
+                    "default_ca": t.default_ca, "default_exam": t.default_exam})
+
+@app.route("/api/subject-templates/<tid>", methods=["DELETE"])
+def api_subject_template_delete(tid):
+    err = require_admin();
+    if err: return err
+    t = db.session.get(SubjectTemplate, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    db.session.delete(t); db.session.commit()
+    return jsonify({"success": True})
+
+@app.route("/api/subject-templates/<tid>/assign", methods=["POST"])
+def api_subject_template_assign(tid):
+    """Assign this subject template to one or more classes."""
+    err = require_admin();
+    if err: return err
+    t = db.session.get(SubjectTemplate, tid)
+    if not t: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    class_ids = d.get("class_ids", [])
+    teacher_id = d.get("teacher_id") or None
+    created = []
+    for cid in class_ids:
+        c = db.session.get(Class, cid)
+        if not c: continue
+        # Check if subject with same name already exists in this class
+        exists = Subject.query.filter_by(class_id=cid, name=t.name).first()
+        if not exists:
+            s = Subject(name=t.name, class_id=cid, teacher_id=teacher_id,
+                        max_ca=t.default_ca, max_exam=t.default_exam)
+            db.session.add(s)
+            created.append(cid)
+    db.session.commit()
+    return jsonify({"success": True, "assigned": len(created), "skipped": len(class_ids) - len(created)})
+
+# ─── STUDENTS ──────────────────────────────────────────────────────────────
+
+@app.route("/api/students", methods=["GET"])
+def api_students_get():
+    class_id = request.args.get("class_id")
+    status   = request.args.get("status", "active")
+    q = Student.query
+    if class_id: q = q.filter_by(class_id=class_id)
+    if status != "all": q = q.filter_by(status=status)
+    students = q.order_by(Student.last_name).all()
+    return jsonify([student_dict(s) for s in students])
+
+@app.route("/api/students", methods=["POST"])
+def api_student_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    s = Student(
+        student_code=generate_student_code(),
+        first_name=d["first_name"], last_name=d["last_name"],
+        other_name=d.get("other_name",""),
+        class_id=d.get("class_id") or None,
+        gender=d.get("gender",""), dob=d.get("dob",""),
+        parent_name=d.get("parent_name",""), parent_phone=d.get("parent_phone",""),
+        parent_email=d.get("parent_email",""), address=d.get("address",""),
+        photo=d.get("photo",""), status=d.get("status","active"),
+        enrolled_year=d.get("enrolled_year", datetime.utcnow().year),
+    )
+    db.session.add(s); db.session.commit()
+    return jsonify(student_dict(s)), 201
+
+@app.route("/api/students/<sid>", methods=["GET"])
+def api_student_get(sid):
+    s = Student.query.filter_by(student_code=sid).first() or db.session.get(Student, sid)
+    if not s: return jsonify({"error": "Not found"}), 404
+    return jsonify(student_dict(s))
+
+@app.route("/api/students/<sid>", methods=["PUT"])
+def api_student_update(sid):
+    err = require_admin();
+    if err: return err
+    s = db.session.get(Student, sid)
+    if not s: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    for f in ["first_name","last_name","other_name","gender","dob","parent_name",
+              "parent_phone","parent_email","address","status","enrolled_year"]:
+        if f in d: setattr(s, f, d[f])
+    if "class_id" in d: s.class_id = d["class_id"] or None
+    if "photo" in d: s.photo = d["photo"]
+    db.session.commit()
+    return jsonify(student_dict(s))
+
+@app.route("/api/students/<sid>", methods=["DELETE"])
+def api_student_delete(sid):
+    err = require_admin();
+    if err: return err
+    s = db.session.get(Student, sid)
+    if not s: return jsonify({"error": "Not found"}), 404
+    db.session.delete(s); db.session.commit()
+    return jsonify({"success": True})
+
+# ─── ATTENDANCE ────────────────────────────────────────────────────────────
+
+@app.route("/api/attendance", methods=["GET"])
+def api_attendance_get():
+    class_id = request.args.get("class_id")
+    date_str = request.args.get("date")
+    q = Attendance.query
+    if date_str: q = q.filter_by(date=date_str)
+    if class_id:
+        student_ids = [s.id for s in Student.query.filter_by(class_id=class_id).all()]
+        q = q.filter(Attendance.student_id.in_(student_ids))
+    records = q.all()
+    return jsonify([{"id": r.id, "student_id": r.student_id, "date": r.date, "status": r.status} for r in records])
+
+@app.route("/api/attendance", methods=["POST"])
+def api_attendance_post():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    # Bulk save: [{student_id, date, status}]
+    records = d.get("records", [])
+    for rec in records:
+        existing = Attendance.query.filter_by(student_id=rec["student_id"], date=rec["date"]).first()
+        if existing:
+            existing.status = rec["status"]
+        else:
+            db.session.add(Attendance(student_id=rec["student_id"], date=rec["date"], status=rec["status"]))
+    db.session.commit()
+    return jsonify({"success": True, "count": len(records)})
+
+@app.route("/api/attendance/summary", methods=["GET"])
+def api_attendance_summary():
+    student_id = request.args.get("student_id")
+    if not student_id: return jsonify({"error": "student_id required"}), 400
+    records = Attendance.query.filter_by(student_id=student_id).all()
+    present = sum(1 for r in records if r.status == "present")
+    absent  = sum(1 for r in records if r.status == "absent")
+    late    = sum(1 for r in records if r.status == "late")
+    return jsonify({"total": len(records), "present": present, "absent": absent, "late": late,
+                    "percent": round(present / len(records) * 100, 1) if records else 0})
+
+# ─── RESULTS ───────────────────────────────────────────────────────────────
+
+@app.route("/api/results", methods=["GET"])
+def api_results_get():
+    student_id    = request.args.get("student_id")
+    class_id      = request.args.get("class_id")
+    term          = request.args.get("term")
+    academic_year = request.args.get("year")
+    q = Result.query
+    if student_id:    q = q.filter_by(student_id=student_id)
+    if term:          q = q.filter_by(term=int(term))
+    if academic_year: q = q.filter_by(academic_year=academic_year)
+    if class_id:
+        student_ids = [s.id for s in Student.query.filter_by(class_id=class_id).all()]
+        q = q.filter(Result.student_id.in_(student_ids))
+    results = q.all()
+    return jsonify([result_dict(r) for r in results])
+
+@app.route("/api/results", methods=["POST"])
+def api_results_post():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    records = d.get("records", [])
+    saved = []
+    for rec in records:
+        existing = Result.query.filter_by(
+            student_id=rec["student_id"], subject_id=rec["subject_id"],
+            term=rec["term"], academic_year=rec["academic_year"]
+        ).first()
+        ca   = float(rec.get("ca_score", 0))
+        exam = float(rec.get("exam_score", 0))
+        total = round(ca + exam, 1)
+        grade, remark = calculate_grade(total)
+        if existing:
+            existing.ca_score=ca; existing.exam_score=exam
+            existing.total=total; existing.grade=grade; existing.remark=remark
+            saved.append(existing)
+        else:
+            r = Result(student_id=rec["student_id"], subject_id=rec["subject_id"],
+                       term=rec["term"], academic_year=rec["academic_year"],
+                       ca_score=ca, exam_score=exam, total=total, grade=grade, remark=remark)
+            db.session.add(r); saved.append(r)
+    db.session.commit()
+    return jsonify({"success": True, "count": len(saved)})
+
+@app.route("/api/results/student/<code>", methods=["GET"])
+def api_results_by_code(code):
+    s = Student.query.filter_by(student_code=code.upper()).first()
+    if not s: return jsonify({"error": "Student code not found"}), 404
+    term          = request.args.get("term")
+    academic_year = request.args.get("year") or get_setting("current_year")
+    q = Result.query.filter_by(student_id=s.id, academic_year=academic_year)
+    if term: q = q.filter_by(term=int(term))
+    results = q.all()
+    # Positions
+    positions = {}
+    if s.class_id:
+        for t in set(r.term for r in results):
+            positions.update(get_class_positions(s.class_id, t, academic_year))
+    pos = positions.get(s.id, {})
+    cls = db.session.get(Class, s.class_id) if s.class_id else None
+    return jsonify({
+        "student": student_dict(s),
+        "class_name": cls.name if cls else "",
+        "results": [result_dict(r) for r in results],
+        "position": pos.get("position"), "out_of": pos.get("out_of"),
+        "total_score": pos.get("total"), "average": pos.get("avg"),
+        "school_name": get_setting("school_name"),
+        "school_address": get_setting("address"),
+        "current_year": academic_year,
+        "term": term or get_setting("current_term"),
+    })
+
+# ─── FEES ──────────────────────────────────────────────────────────────────
+
+@app.route("/api/fee-types", methods=["GET"])
+def api_fee_types_get():
+    fee_types = FeeType.query.order_by(FeeType.name).all()
+    return jsonify([{"id": f.id, "name": f.name, "amount": f.amount,
+                     "term": f.term, "academic_year": f.academic_year or "",
+                     "description": f.description or ""} for f in fee_types])
+
+@app.route("/api/fee-types", methods=["POST"])
+def api_fee_type_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    f = FeeType(name=d["name"], amount=float(d["amount"]),
+                term=d.get("term"), academic_year=d.get("academic_year",""),
+                description=d.get("description",""))
+    db.session.add(f); db.session.commit()
+    return jsonify({"id": f.id, "name": f.name, "amount": f.amount}), 201
+
+@app.route("/api/fee-types/<fid>", methods=["DELETE"])
+def api_fee_type_delete(fid):
+    err = require_admin();
+    if err: return err
+    f = db.session.get(FeeType, fid)
+    if not f: return jsonify({"error": "Not found"}), 404
+    db.session.delete(f); db.session.commit()
+    return jsonify({"success": True})
+
+@app.route("/api/payments", methods=["GET"])
+def api_payments_get():
+    student_id = request.args.get("student_id")
+    q = FeePayment.query
+    if student_id: q = q.filter_by(student_id=student_id)
+    payments = q.order_by(FeePayment.date_paid.desc()).all()
+    return jsonify([{
+        "id": p.id, "student_id": p.student_id,
+        "student": f"{p.student.first_name} {p.student.last_name}" if p.student else "",
+        "student_code": p.student.student_code if p.student else "",
+        "fee_type_id": p.fee_type_id, "fee_name": p.fee_type.name if p.fee_type else "",
+        "amount_paid": p.amount_paid, "date_paid": p.date_paid,
+        "payment_method": p.payment_method or "cash",
+        "receipt_no": p.receipt_no or "", "note": p.note or "",
+    } for p in payments])
+
+@app.route("/api/payments", methods=["POST"])
+def api_payment_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    p = FeePayment(
+        student_id=d["student_id"], fee_type_id=d["fee_type_id"],
+        amount_paid=float(d["amount_paid"]),
+        date_paid=d.get("date_paid", date.today().isoformat()),
+        payment_method=d.get("payment_method","cash"),
+        receipt_no=d.get("receipt_no") or generate_receipt_no(),
+        note=d.get("note","")
+    )
+    db.session.add(p); db.session.commit()
+    return jsonify({"id": p.id, "receipt_no": p.receipt_no, "amount_paid": p.amount_paid}), 201
+
+@app.route("/api/payments/<int:pid>", methods=["DELETE"])
+def api_payment_delete(pid):
+    err = require_admin();
+    if err: return err
+    p = db.session.get(FeePayment, pid)
+    if not p: return jsonify({"error": "Not found"}), 404
+    db.session.delete(p); db.session.commit()
+    return jsonify({"success": True})
+
+# ─── ANNOUNCEMENTS ─────────────────────────────────────────────────────────
+
+@app.route("/api/announcements", methods=["GET"])
+def api_announcements_get():
+    public_only = request.args.get("public") == "1"
+    q = Announcement.query
+    if public_only: q = q.filter_by(published=True)
+    anns = q.order_by(Announcement.pinned.desc(), Announcement.date_posted.desc()).all()
+    return jsonify([{"id": a.id, "title": a.title, "content": a.content,
+                     "category": a.category, "published": a.published,
+                     "pinned": a.pinned,
+                     "date_posted": a.date_posted.strftime("%b %d, %Y")} for a in anns])
+
+@app.route("/api/announcements", methods=["POST"])
+def api_announcement_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    a = Announcement(title=d["title"], content=d["content"],
+                     category=d.get("category","General"),
+                     published=d.get("published", True), pinned=d.get("pinned", False))
+    db.session.add(a); db.session.commit()
+    return jsonify({"id": a.id, "title": a.title, "category": a.category,
+                    "published": a.published, "pinned": a.pinned,
+                    "date_posted": a.date_posted.strftime("%b %d, %Y")}), 201
+
+@app.route("/api/announcements/<int:aid>", methods=["PUT"])
+def api_announcement_update(aid):
+    err = require_admin();
+    if err: return err
+    a = db.session.get(Announcement, aid)
+    if not a: return jsonify({"error": "Not found"}), 404
+    d = request.json or {}
+    for f in ["title","content","category","published","pinned"]:
+        if f in d: setattr(a, f, d[f])
+    db.session.commit()
+    return jsonify({"success": True, "id": a.id, "title": a.title,
+                    "published": a.published, "pinned": a.pinned,
+                    "category": a.category, "date_posted": a.date_posted.strftime("%b %d, %Y")})
+
+@app.route("/api/announcements/<int:aid>", methods=["DELETE"])
+def api_announcement_delete(aid):
+    err = require_admin();
+    if err: return err
+    a = db.session.get(Announcement, aid)
+    if not a: return jsonify({"error": "Not found"}), 404
+    db.session.delete(a); db.session.commit()
+    return jsonify({"success": True})
+
+# ─── DOWNLOADS ─────────────────────────────────────────────────────────────
+
+@app.route("/api/downloads", methods=["GET"])
+def api_downloads_get():
+    public_only = request.args.get("public") == "1"
+    q = Download.query
+    if public_only: q = q.filter_by(published=True)
+    items = q.order_by(Download.date_uploaded.desc()).all()
+    return jsonify([{"id": i.id, "title": i.title, "category": i.category,
+                     "file_name": i.file_name or "", "file_type": i.file_type or "",
+                     "file_data": i.file_data or "", "published": i.published,
+                     "date_uploaded": i.date_uploaded.strftime("%b %d, %Y")} for i in items])
+
+@app.route("/api/downloads", methods=["POST"])
+def api_download_create():
+    err = require_admin();
+    if err: return err
+    d = request.json or {}
+    i = Download(title=d["title"], category=d.get("category","General"),
+                 file_name=d.get("file_name",""), file_type=d.get("file_type",""),
+                 file_data=d.get("file_data",""), published=d.get("published",True))
+    db.session.add(i); db.session.commit()
+    return jsonify({"id": i.id, "title": i.title, "category": i.category,
+                    "file_name": i.file_name, "published": i.published,
+                    "date_uploaded": i.date_uploaded.strftime("%b %d, %Y")}), 201
+
+@app.route("/api/downloads/<int:did>", methods=["DELETE"])
+def api_download_delete(did):
+    err = require_admin();
+    if err: return err
+    i = db.session.get(Download, did)
+    if not i: return jsonify({"error": "Not found"}), 404
+    db.session.delete(i); db.session.commit()
+    return jsonify({"success": True})
+
+# ─── REPORTS / STATS ───────────────────────────────────────────────────────
+
+@app.route("/api/stats")
+def api_stats():
+    err = require_admin();
+    if err: return err
+    return jsonify({
+        "students":      Student.query.filter_by(status="active").count(),
+        "teachers":      Teacher.query.count(),
+        "classes":       Class.query.count(),
+        "announcements": Announcement.query.filter_by(published=True).count(),
+        "total_fees":    db.session.query(db.func.sum(FeePayment.amount_paid)).scalar() or 0,
+    })
+
+@app.route("/api/reports/class-list")
+def api_report_class_list():
+    err = require_admin();
+    if err: return err
+    class_id = request.args.get("class_id")
+    cls = db.session.get(Class, class_id)
+    if not cls: return jsonify({"error": "Class not found"}), 404
+    students = Student.query.filter_by(class_id=class_id, status="active").order_by(Student.last_name).all()
+    return jsonify({
+        "class": class_dict(cls),
+        "students": [student_dict(s) for s in students],
+        "school_name": get_setting("school_name"),
+        "generated": date.today().isoformat(),
+    })
+
+@app.route("/api/reports/grade-sheet")
+def api_report_grade_sheet():
+    err = require_admin();
+    if err: return err
+    class_id      = request.args.get("class_id")
+    term          = int(request.args.get("term", get_setting("current_term") or 1))
+    academic_year = request.args.get("year", get_setting("current_year"))
+    cls = db.session.get(Class, class_id)
+    if not cls: return jsonify({"error": "Class not found"}), 404
+    students  = Student.query.filter_by(class_id=class_id, status="active").order_by(Student.last_name).all()
+    subjects  = Subject.query.filter_by(class_id=class_id).order_by(Subject.name).all()
+    positions = get_class_positions(class_id, term, academic_year)
+    sheet = []
+    for s in students:
+        row = {"student": student_dict(s, include_class=False), "scores": {}}
+        for subj in subjects:
+            r = Result.query.filter_by(student_id=s.id, subject_id=subj.id, term=term, academic_year=academic_year).first()
+            row["scores"][subj.id] = {"ca": r.ca_score if r else None, "exam": r.exam_score if r else None,
+                                       "total": r.total if r else None, "grade": r.grade if r else None}
+        pos = positions.get(s.id, {})
+        row["position"] = pos.get("position"); row["avg"] = pos.get("avg"); row["total"] = pos.get("total")
+        sheet.append(row)
+    return jsonify({
+        "class": class_dict(cls), "subjects": [{"id": s.id, "name": s.name} for s in subjects],
+        "sheet": sheet, "term": term, "academic_year": academic_year,
+        "school_name": get_setting("school_name"),
+    })
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=os.environ.get("FLASK_DEBUG","0")=="1")
